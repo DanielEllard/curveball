@@ -1,6 +1,6 @@
 builduser: dellard
-builddir: /home/dellard/curveball/src
+builddir: /home/dellard/curveball/src/packaging
 hostname: jun
-buildtime: 20141219-1947-UTC
+buildtime: 20160308-1631-UTC
 git-branch: master
-git-commit: b230a61c3b5a22897e98893562e9084bbde705b2
+git-commit: 329902e3dfd6e0bbbad525dbe1a214b7f499ee59

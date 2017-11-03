@@ -1,4 +1,4 @@
-DECOY HOST MANAGEMENT GUIDE - version 2014.12.19
+DECOY HOST MANAGEMENT GUIDE - version 2016.03.08
 
 Blacklisting Decoys in BBN Curveball
 

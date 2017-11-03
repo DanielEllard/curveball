@@ -582,7 +582,11 @@ class FlowMonitor(object):
 
         if self.state == 'Hijacked':
 
-           # Change RST to ACK
+            # once hijacked, suppress data packets from decoy
+            if pkt.get_payload_len() > 0:
+                return;
+
+            # change RST to ACK
             flags = pkt.get_flags()
             if flags & dpkt.tcp.TH_RST:
                 flags &= ~dpkt.tcp.TH_RST
@@ -591,7 +595,7 @@ class FlowMonitor(object):
 
             self.send_to_dr(pkt, False) # false indicates decoy packet
 
-            # If we see a RST or FIN, abandon the connection
+            # If we see a FIN, abandon the connection
             # TODO: does this really close everything?
             if flags & dpkt.tcp.TH_FIN:
                 print 'detected client<-decoy FIN on tunnel'
