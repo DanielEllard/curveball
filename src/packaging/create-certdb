@@ -24,8 +24,8 @@
 # are relative to the packaging directory.
 
 
-BUILDTYPE_DBG=Linux3.2_x86_64_glibc_PTH_64_DBG.OBJ
-BUILDTYPE_OPT=Linux3.2_x86_64_glibc_PTH_64_OPT.OBJ
+BUILDTYPE_DBG=Linux3.13_x86_64_glibc_PTH_64_DBG.OBJ
+BUILDTYPE_OPT=Linux3.13_x86_64_glibc_PTH_64_OPT.OBJ
 
 CERTUTILDIR=../nss/nss-3.13.3/mozilla/security/nss/cmd/certutil
 
