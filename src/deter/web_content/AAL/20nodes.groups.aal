@@ -1,4 +1,0 @@
-#
-#
-servers: &servers [ server01, server02, server03, server04, server05, server06, server07, server08, server09, server10, server11, server12, server13, server14, server15, server16, server17, server18, server19 ]
-clients: &clients [ webclient, webgw ]
