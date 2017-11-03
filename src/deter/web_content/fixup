@@ -1,0 +1,29 @@
+#!/usr/bin/env python
+
+"""
+This script is used to fix the filenames of content downloaded
+with the make-content.sh script.
+
+The problem is that wget saves URLs that are queries (e.g.
+index.html?id=3) with the query string appended.  However, apache
+will look for the filename up to the query string, and so it won't
+find the proper file.  This script walks the content directory and
+renames files by removing any query string in order to "solve" the
+problem.
+
+"""
+
+import sys
+import os
+import os.path
+
+cdir = sys.argv[1]
+
+for root, dirs, files in os.walk(cdir):
+    for f in files:
+        p = f.split('?')
+        if len(p) > 1:
+            src = os.path.join(root, f)
+            dst = os.path.join(root, p[0])
+            print 'renaming %s to %s' % (src, dst)
+            os.rename(src, dst)

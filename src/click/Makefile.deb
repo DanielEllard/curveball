@@ -22,24 +22,34 @@
 # DOES NOT SUPPORT LINUX KERNEL MODULES, SOME DRIVERS, AND SOME
 # ELEMENTS.
 #
-# NOTE:
-# We assume that NO other version of click is already installed.  If
-# another version of click is installed, then we try to detect this
-# and fail.  This can be overridden by removing the test_click_version
-# from the build, but this will clobber whatever was installed, with
-# unpredictable and often undesirable results.
-#
-# (At some point we might want to install our version of click in its
-# own directory, instead of /usr/local/, but we're not doing that yet.)
 
 CLICK_VERSION	= 01102014cb
 CLICK_DIR	= click-$(CLICK_VERSION)
 
-CLICK_OPTIONS	= --disable-linuxmodule
+CLICK_OPTIONS	=
+CLICK_OPTIONS	+= --disable-linuxmodule
+CLICK_OPTIONS	+= --disable-ip6 --disable-ipsec --disable-radio
+CLICK_OPTIONS	+= --enable-dynamic-linking
+CLICK_OPTIONS	+= --prefix=/opt/curveball/click-inst
+
 CBCLICK_OPTIONS	=
+CBCLICK_OPTIONS	+= --prefix=/opt/curveball/click-inst
+
 SUDO		= /usr/bin/sudo
 MAKEFILE	= $(lastword $(MAKEFILE_LIST))
-SRCDIR_FILE	= /usr/local/share/click/srcdir
+SRCDIR_FILE	= /opt/curveball/click-inst/share/click/srcdir
+
+# If we're building in our home directory (or another development area)
+# then we don't need sudo to succeed.  If we're building and installing in
+# /opt/curveball, however, then we need sudo or else permissions will be
+# a problem.
+#
+ifeq ($(PWD), /opt/curveball/click)
+    BUILDSUDO = $(SUDO)
+else
+    BUILDSUDO =
+endif
+
 
 # test whether there's any version of click installed, and if so
 # whether it matches the version we want to build, and halts if
@@ -50,14 +60,16 @@ SRCDIR_FILE	= /usr/local/share/click/srcdir
 build:
 	$(MAKE) -f $(MAKEFILE) test_click_version
 	$(MAKE) -f $(MAKEFILE) base_click
-	cd curveball && $(SUDO) ./configure $(CBCLICK_OPTIONS)
+	cd curveball && $(BUILDSUDO) ./configure $(CBCLICK_OPTIONS)
+	cd curveball && $(BUILDSUDO) $(MAKE)
 	cd curveball && $(SUDO) $(MAKE) install
 
 # Only builds/installs the BBN Curveball elements.
 #
 cbbuild: $(SRCDIR_FILE)
 	$(MAKE) -f $(MAKEFILE) test_click_version
-	cd curveball && $(SUDO) ./configure $(CBCLICK_OPTIONS)
+	cd curveball && $(BUILDSUDO) ./configure $(CBCLICK_OPTIONS)
+	cd curveball && $(BUILDSUDO) $(MAKE)
 	cd curveball && $(SUDO) $(MAKE) install
 
 # if $SRCDIR_FILE does not exist, then click isn't installed (or isn't
@@ -86,13 +98,14 @@ $(CLICK_DIR):
 
 base_click:
 	$(MAKE) -f $(MAKEFILE) $(CLICK_DIR)
-	cd $(CLICK_DIR) && $(SUDO) ./configure $(CLICK_OPTIONS)
+	cd $(CLICK_DIR) && $(BUILDSUDO) ./configure $(CLICK_OPTIONS)
+	cd $(CLICK_DIR) && $(BUILDSUDO) $(MAKE)
 	cd $(CLICK_DIR) && $(SUDO) $(MAKE) install
 
 clean:	$(CLICK_DIR)
-	cd $(CLICK_DIR) && $(SUDO) $(MAKE) clean
-	cd curveball && $(SUDO) $(MAKE) clean
-	cd curveball && $(SUDO) ./configure $(CBCLICK_OPTIONS)
+	cd $(CLICK_DIR) && $(BUILDSUDO) $(MAKE) clean
+	cd curveball && $(BUILDSUDO) $(MAKE) clean
+	cd curveball && $(BUILDSUDO) $(SUDO) ./configure $(CBCLICK_OPTIONS)
 
 # Not really spotless, because it doesn't uninstall.  It only cleans up the
 # build area.

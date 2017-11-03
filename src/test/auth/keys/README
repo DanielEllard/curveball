@@ -7,4 +7,4 @@ and testing.  THE "test*" KEYS ARE NOT A SECRET AND SHOULD NEVER
 BE USED ON THE OPEN INTERNET.
 
 keys_short is provided for historical reasons.  It should be
-regenerated, using cbkm, from the master file.
+regenerated, using cbnoc-keymanager, from the master file.

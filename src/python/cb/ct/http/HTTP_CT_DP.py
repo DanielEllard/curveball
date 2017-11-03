@@ -156,8 +156,7 @@ class SrcProtocol(Protocol):
         self.seqNum_D2C_Counter = 0
         self.seqNum_C2D_Counter = 0
 
-        self.server_name = ''
-        self.response_date = ''
+        self.server_name = 'Server: Apache' + const.END_LINE
         self.content_type = 'Content-Type: ' + 'text/html; charset=UTF-8' + const.END_LINE
 
     def connectionMade(self):
@@ -184,10 +183,20 @@ class SrcProtocol(Protocol):
         self.premaster       = self.client_data[ i3 : i4 ]
         self.decoupled_ID    = self.client_data[ i4 : i5 ]
         self.seqNum_C2D_Rand = self.client_data[ i5 : i6 ]
-        content_type_temp    = self.client_data[ i6 :    ]
+        header_field_values  = self.client_data[ i6 :    ]
+
+        val = header_field_values.split(const.END_LINE)
+        if len(val) == 2:
+            content_type_temp  = val[0]
+            server_name_temp   = val[1]
+        else:
+            print "did not receive all tunnel params from connection_monitor"
+            self.cc.transport.loseConnection()
 
         if content_type_temp != '':
             self.content_type = 'Content-Type: ' + content_type_temp + const.END_LINE
+        if server_name_temp != '':
+            self.server_name = 'Server: ' + server_name_temp + const.END_LINE
 
         dstFactory = Factory()
         dstFactory.protocol = DstProtocol
@@ -256,8 +265,8 @@ class SrcProtocol(Protocol):
         # C. E_DP( Salt_4 + SeqNum_D2C + CovertData )
         #
         resp = http_resp.create_http_resp(self, self.dp_key,
-                seqNum_D2C + auth_text, self. server_name,
-                self.response_date, self.content_type, text)
+                seqNum_D2C + auth_text, self.server_name,
+                self.content_type, text)
 
         try:
             self.transport.write(resp)
@@ -314,8 +323,7 @@ class SrcProtocol(Protocol):
         # B. E_DP( Salt_2 + SeqNum_D2C_Rand + welcome to curveball )
         #
         resp = http_resp.create_http_resp( self, self.dp_key,
-                auth_text, self.server_name, self.response_date,
-                self.content_type, text )
+                auth_text, self.server_name, self.content_type, text)
 
         self.transport.write( resp )
 

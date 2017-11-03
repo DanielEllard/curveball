@@ -229,7 +229,7 @@ class SpeedTest(HelloWorld):
         
         self.run('dp', 'cd %s/python/cb/dr2dp/ ; sudo PYTHONPATH=../../ ./dr2dp_dp.py --raw' % self.install_dir)
         time.sleep(1)
-        self.run('dr', 'cd %s/scripts/ ; sudo ./dr.py -k -s ../click/curveball/forwarding-speed.click' % self.install_dir)
+        self.run('dr', 'cd %s/scripts/ ; sudo ./cb-dr -k -s ../click/curveball/forwarding-speed.click' % self.install_dir)
 
         self.iperf()
         

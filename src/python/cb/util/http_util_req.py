@@ -94,13 +94,13 @@ def get_header_value(field_name, header):
         return '-1'
 
 
-def create_http_req(self, data, ID, tunnel_type, addr):
+def create_http_req(self, data, ID, tunnel_type, host_name):
     """
     Create an http request.
     """
 
     get = 'GET /' + data.encode("hex") + ' HTTP/1.1' + const.END_LINE
-    host = 'Host: ' + addr[0] + const.END_LINE
+    host = 'Host: ' + host_name + const.END_LINE
     user_agent = ( 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_1) ' +
                    'AppleWebKit/535.11 (KHTML, like Gecko) Chrome/17.0.963.56 Safari/535.11' +
                    const.END_LINE )

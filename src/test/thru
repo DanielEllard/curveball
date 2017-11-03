@@ -44,7 +44,7 @@ ITERS="0 1 2 3 4"
 
 export PYTHONPATH=/opt/curveball/python/:$PYTHONPATH
 
-CLIENT=client.py
+CLIENT=curveball-client
 SCRIPTS=/opt/curveball/scripts
 CLIENTPATH="/opt/curveball/scripts/${CLIENT}"
 if [ -x $CLIENTPATH ]; then
@@ -57,7 +57,7 @@ else
     if [ -x $CLIENTPATH ]; then
        echo Using client: $CLIENTPATH
     else 
-       echo Cannot find client.py 
+       echo Cannot find $CLIENT
        exit 1
     fi
 fi
@@ -97,7 +97,7 @@ done
 #
 ${SUDO} ${PKILL} -f ${CLIENT}
 
-${SUDO} ${SCRIPTS}/client-key-config -c cbtest0
+${SUDO} ${SCRIPTS}/curveball-key-config -c cbtest0
 ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w &
 # 2> /dev/null &
 sleep 5

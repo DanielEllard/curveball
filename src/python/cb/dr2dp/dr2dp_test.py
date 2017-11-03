@@ -30,6 +30,7 @@ from cb.dr2dp.dr2dp import DR2DPMessageRedirectFlow
 from cb.dr2dp.dr2dp import DR2DPMessageRemoveFlow
 from cb.dr2dp.dr2dp import DR2DPMessageReassignFlow
 from cb.dr2dp.dr2dp import DR2DPMessageTLSFlowEstablished
+from cb.dr2dp.dr2dp import DR2DPMessageICMP
 
 
 class TestProtocol(Protocol):
@@ -42,7 +43,8 @@ class TestProtocol(Protocol):
             DR2DPMessage1.OP_TYPE_REDIRECT_FLOW : self.redirect_flow,
             DR2DPMessage1.OP_TYPE_REMOVE_FLOW : self.remove_flow,
             DR2DPMessage1.OP_TYPE_REASSIGN_FLOW : self.reassign_flow,
-            DR2DPMessage1.OP_TYPE_TLS_FLOW_ESTABLISHED : self.tls_flow
+            DR2DPMessage1.OP_TYPE_TLS_FLOW_ESTABLISHED : self.tls_flow,
+            DR2DPMessage1.OP_TYPE_ICMP : self.icmp
         }
 
         self.recv_buffer = ''
@@ -109,6 +111,12 @@ class TestProtocol(Protocol):
         msg.unpack()
         print 'TLS_FLOW_ESTABLISHED message received:'
         print '  %s' % (str(msg),)
+
+    def icmp(self, msg):
+        msg.__class__ = DR2DPMessageICMP
+        msg.unpack()
+        print 'ICMP message received:'
+        print ' %s' % (str(msg),)
 
 
 class TestServer(object):
@@ -183,6 +191,12 @@ class TestDriver(threading.Thread):
         msg = DR2DPMessageTLSFlowEstablished('1.2.3.4', '5.6.7.8',
                                              1234, 5678, 7,
                                              '0123456789012345678912345678')
+        print '  %s' % (str(msg),)
+        self.sock.transport.write(msg.pack())
+
+        print 'Sending ICMP messages:'
+        msg = DR2DPMessageICMP('5.6.7.8', '1.2.3.4',
+                               5678, 1234, 3, 1, 'ICMPPacket')
         print '  %s' % (str(msg),)
         self.sock.transport.write(msg.pack())
 

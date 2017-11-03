@@ -70,7 +70,7 @@ do_install_dp() {
 
     node_exists "${nodename}"
     if [ $? -eq 0 ]; then
-	ssh $nodename "cd /opt/curveball/scripts ; sudo ./decoyproxy.py -s"
+	ssh $nodename "cd /opt/curveball/scripts ; sudo ./cb-dp -s"
     fi
 }
 

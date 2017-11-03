@@ -45,10 +45,15 @@ case ${EXPNAME} in
 	;;
 esac
 
-TSIZE=4000000
+TSIZE=1000000
+# The unidirectional client is much slower than the others,
+# so cut the transfer size so we don't have to wait forever.
+# TODO: use the same transfer size for http-uni.
+#
+SMALL_TSIZE=$((TSIZE / 2))
 ITERS=5
 
-CLIENT=client.py
+CLIENT=curveball-client
 CLIENTPATH="${SCRIPTDIR}/${CLIENT}"
 
 CURL=/usr/bin/curl
@@ -61,157 +66,300 @@ PKILL=/usr/bin/pkill
 #
 unset http_proxy
 
+usage() {
+    cat <<.
+
+    $0: run a throughput test for the given tunnel
+
+    Each test specified on the commandline is run once. 
+    Tests may be specified by test number or name.
+
+    Num Name                    Description
+
+    0  all                      Run all of the test conditions
+    1  normal-http              ordinary HTTP
+    2  normal-https             ordinary HTTPS
+    3  curveball-http-http      HTTP over Curveball http
+    4  curveball-http-https     HTTPS over Curveball http
+    5  curveball-https-http     HTTP over Curveball https
+    6  curveball-https-https    HTTPS over Curveball https
+    7  curveball-http-uni-http  HTTP over Curveball http-uni
+    8  curveball-http-uni-https HTTPS over Curveball http-uni
+    9  curveball-tls-uni-http   HTTP over Curveball tls-uni
+    10 curveball-tls-uni-https  HTTPS over Curveball tls-uni
+
+.
+}
+
+if [ $# -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+DO_NORMAL_HTTP=0
+DO_NORMAL_HTTPS=0
+DO_CURVEBALL_HTTP_HTTP=0
+DO_CURVEBALL_HTTP_HTTPS=0
+DO_CURVEBALL_HTTPS_HTTP=0
+DO_CURVEBALL_HTTPS_HTTPS=0
+DO_CURVEBALL_HTTP_UNI_HTTP=0
+DO_CURVEBALL_HTTP_UNI_HTTPS=0
+DO_CURVEBALL_TLS_UNI_HTTP=0
+DO_CURVEBALL_TLS_UNI_HTTPS=0
+
+for testcase in $* ; do 
+    case "$testcase" in
+	1|normal-http)
+	    DO_NORMAL_HTTP=1
+	    ;;
+	2|normal-https)
+	    DO_NORMAL_HTTPS=1
+	    ;;
+	3|curveball-http-http)
+	    DO_CURVEBALL_HTTP_HTTP=1
+	    ;;
+	4|curveball-http-https)
+	    DO_CURVEBALL_HTTP_HTTPS=1
+	    ;;
+	5|curveball-https-http)
+	    DO_CURVEBALL_HTTPS_HTTP=1
+	    ;;
+	6|curveball-https-https)
+	    DO_CURVEBALL_HTTPS_HTTPS=1
+	    ;;
+	7|curveball-http-uni-http)
+	    DO_CURVEBALL_HTTP_UNI_HTTP=1
+	    ;;
+	8|curveball-http-uni-https)
+	    DO_CURVEBALL_HTTP_UNI_HTTPS=1
+	    ;;
+	9|curveball-tls-uni-http)
+	    DO_CURVEBALL_TLS_UNI_HTTP=1
+	    ;;
+	10|curveball-tls-uni-https)
+	    DO_CURVEBALL_TLS_UNI_HTTPS=1
+	    ;;
+	0|all)
+	    DO_NORMAL_HTTP=1
+	    DO_NORMAL_HTTPS=1
+	    DO_CURVEBALL_HTTP_HTTP=1
+	    DO_CURVEBALL_HTTP_HTTPS=1
+	    DO_CURVEBALL_HTTPS_HTTP=1
+	    DO_CURVEBALL_HTTPS_HTTPS=1
+	    DO_CURVEBALL_HTTP_UNI_HTTP=1
+	    DO_CURVEBALL_HTTP_UNI_HTTPS=1
+	    DO_CURVEBALL_TLS_UNI_HTTP=1
+	    DO_CURVEBALL_TLS_UNI_HTTPS=1
+	    ;;
+	-h|help)
+	    usage
+	    exit 0
+	    ;;
+	*)
+	    echo "$0: Error: Unknown test condition $testcase"
+	    usage
+	    exit 1
+	    ;;
+    esac
+done
+
 # Get sudo established quickly, instead of making the user
 # type a password later
 ${SUDO} /bin/true
 
-condition="normal http download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+if [ 0 -ne ${DO_NORMAL_HTTP} ]; then
+    condition="normal http download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    "http://${COVERT}/?size=$TSIZE"
-done
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		"http://${COVERT}/?size=$TSIZE"
+    done
+fi
 
-condition="normal https download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+if [ 0 -ne ${DO_NORMAL_HTTPS} ]; then
+    condition="normal https download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    "https://${COVERT}/?size=$TSIZE"
-done
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		"https://${COVERT}/?size=$TSIZE"
+    done
+fi
 
-# If there's already a curveball client running, then we don't know
-# what parameters it has: kill it and start a new one.
-#
-${SUDO} ${PKILL} -f ${CLIENT}
-${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w 2> /dev/null &
-sleep 5
+if [ 0 -ne ${DO_CURVEBALL_HTTP_HTTP} ]; then
+    # Kill the current client, if any, and rerun with the http client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w 2> /dev/null &
+    sleep 5
 
-condition="curveball-http http download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+    condition="curveball-http http download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010 \
-	    "http://$COVERT/?size=$TSIZE"
-done
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010 \
+		"http://$COVERT/?size=$TSIZE"
+    done
+fi
 
-condition="curveball-http https download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+if [ 0 -ne ${DO_CURVEBALL_HTTP_HTTPS} ]; then
+    # Kill the current client, if any, and rerun with the http client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w 2> /dev/null &
+    sleep 5
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010\
-	    "https://$COVERT/?size=$TSIZE"
-done
+    condition="curveball-http https download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-# Kill the http client and rerun with the https client
-#
-${SUDO} ${PKILL} -f ${CLIENT}
-${SUDO} ${CLIENTPATH} -x -d "${DECOY}:443" 2> /dev/null &
-sleep 5
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010\
+		"https://$COVERT/?size=$TSIZE"
+    done
+fi
 
-condition="curveball-https http download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+if [ 0 -ne ${DO_CURVEBALL_HTTPS_HTTP} ]; then
+    # Kill the current client, if any, and rerun with the https client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:443" 2> /dev/null &
+    sleep 5
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010 \
-	    "http://$COVERT/?size=$TSIZE"
-done
+    condition="curveball-https http download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-condition="curveball-https https download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010 \
+		"http://$COVERT/?size=$TSIZE"
+    done
+fi
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010\
-	    "https://$COVERT/?size=$TSIZE"
-done
+if [ 0 -ne ${DO_CURVEBALL_HTTPS_HTTPS} ]; then
+    # Kill the current client, if any, and rerun with the https client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:443" 2> /dev/null &
+    sleep 5
 
-# Kill the https client and rerun with the http-uni client
-#
+    condition="curveball-https https download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-# TODO: use the same TSIZE for http-uni.
-# The http-uni client is much slower than the others, so cut the
-# transfer size so we don't have to wait forever.
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010\
+		"https://$COVERT/?size=$TSIZE"
+    done
+fi
 
-TSIZE=$((TSIZE / 40))
+if [ 0 -ne ${DO_CURVEBALL_HTTP_UNI_HTTP} ]; then
+    # Kill the current client, if any, and rerun with the http-uni client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w -u 2> /dev/null &
+    sleep 5
 
-${SUDO} ${PKILL} -f ${CLIENT}
-${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w -u 2> /dev/null &
-sleep 5
+    condition="curveball-http-uni http download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-condition="curveball-httpu http download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010 \
+		"http://$COVERT/?size=$SMALL_TSIZE"
+	# The unidirectional tunnel works better if there is a small gap
+	# between large requests.
+	sleep 4
+    done
+fi
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010 \
-	    "http://$COVERT/?size=$TSIZE"
-    # The unidirectional tunnel works better if there is a small gap
-    # between large requests.
-    sleep 4
-done
+if [ 0 -ne ${DO_CURVEBALL_HTTP_UNI_HTTPS} ]; then
+    # Kill the current client, if any, and rerun with the http-uni client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:80" -w -u 2> /dev/null &
+    sleep 5
 
-condition="curveball-httpu https download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+    condition="curveball-http-uni https download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010\
-	    "https://$COVERT/?size=$TSIZE"
-    # The unidirectional tunnel works better if there is a small gap
-    # between large requests.
-    sleep 4
-done
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010\
+		"https://$COVERT/?size=$SMALL_TSIZE"
+	# The unidirectional tunnel works better if there is a small gap
+	# between large requests.
+	sleep 4
+    done
+fi
 
-# Kill the httpu client and rerun with the httpsu client
-#
-${SUDO} ${PKILL} -f ${CLIENT}
-${SUDO} ${CLIENTPATH} -x -d "${DECOY}:443" -u 2> /dev/null &
-sleep 5
+if [ 0 -ne ${DO_CURVEBALL_TLS_UNI_HTTP} ]; then
+    # Kill the current client, if any, and rerun with the tls-uni client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:443" -u 2> /dev/null &
+    sleep 5
 
-condition="curveball-httpsu http download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+    condition="curveball-tls-uni http download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010 \
-	    "http://$COVERT/?size=$TSIZE"
-done
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010 \
+		"http://$COVERT/?size=$SMALL_TSIZE"
+	sleep 10
+    done
+fi
 
-condition="curveball-httpsu https download"
-iter=0
-while [ $iter -lt $ITERS ]; do
-    iter=$((iter + 1))
+if [ 0 -ne ${DO_CURVEBALL_TLS_UNI_HTTPS} ]; then
+    # Kill the current client, if any, and rerun with the tls-uni client
+    #
+    ${SUDO} ${PKILL} -f ${CLIENT}
+    ${SUDO} ${CLIENTPATH} -x -d "${DECOY}:443" -u 2> /dev/null &
+    sleep 5
 
-    $CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
-	    -4 -o /dev/null -s \
-	    --socks localhost:5010\
-	    "https://$COVERT/?size=$TSIZE"
-done
+    condition="curveball-tls-uni https download"
+    echo $condition
+    iter=0
+    while [ $iter -lt $ITERS ]; do
+	iter=$((iter + 1))
 
-
+	$CURL -w "$condition $iter %{speed_download} B/s %{size_download} B\n" \
+		-4 -o /dev/null -s \
+		--socks localhost:5010\
+		"https://$COVERT/?size=$SMALL_TSIZE"
+	sleep 10
+    done
+fi
 
 # Clean up any clients we left behind
 #

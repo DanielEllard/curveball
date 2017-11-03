@@ -52,6 +52,10 @@ class DR2DPEncoder : public Element { public:
 
     void tls_established(const IPFlowID &flow, const String &random);
 
+    void redirect_icmp_packet(const IPFlowID &flow,
+                              Packet *pkt,
+                              bool to_client);
+
   private:
 
     Timer 	_ping_timer;

@@ -40,12 +40,12 @@ PAUSESECONDS=2
 
 # Kill things that run on the DR.
 echo "Killing any DR processes..."
-${SUDO} ${PKILL} -SIGINT -f "python .*dr.py"
+${SUDO} ${PKILL} -SIGINT -f "python .*cb-dr"
 ${SUDO} ${PKILL} -SIGINT -f "click .*decoy-router.click"
 
 # Kill things that run on the DP.
 echo "Killing any DP processes..."
-${SUDO} ${PKILL} -SIGINT -f "python .*decoyproxy.py"
+${SUDO} ${PKILL} -SIGINT -f "python .*cb-dp"
 
 # Kill things that run on the covert/decoy
 echo "Killing any Decoy/Covert processes..."
@@ -63,7 +63,7 @@ ${SUDO} ${PKILL} -SIGINT -f "python .*ctm"
 
 # Kill things that run on the client
 echo "Killing any Curveball client processes..."
-${SUDO} ${PKILL} -SIGINT -f "python .*client.py"
+${SUDO} ${PKILL} -SIGINT -f "python .*curveball-client"
 ${SUDO} ${PKILL} -SIGINT -f "client-agent"
 ${SUDO} ${PKILL} -SIGINT -f "python .*echo-client"
 

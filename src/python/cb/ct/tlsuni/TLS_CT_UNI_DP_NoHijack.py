@@ -100,7 +100,7 @@ class SrcProtocol(Protocol):
         Use the callback to get a handle for the TLSUniFlowMonitor, which
         knows the session key for the connection.
         """
-        
+
         dstFactory = Factory()
         dstFactory.protocol = DstProtocol
         dstFactory.src_protocol = self
@@ -117,7 +117,7 @@ class SrcProtocol(Protocol):
         We've lost the connection to the src (client), shut down
         the connection to the dst (CCP_DP).
         """
-        
+
         print "TLS CT_DP UNI connectionLost"
         
         if not self.dst_protocol is None:
@@ -132,27 +132,14 @@ class SrcProtocol(Protocol):
     def dstConnected(self, protocol):
 
         self.dst_protocol = protocol
-
         if self.ct_dp:
             self.ct_dp.tunnelMade(self, self.dst_protocol)
 
     def dataReceived(self, data):
-        
         self.tunnelIsReady(data)
 
     def tunnelIsReady(self, buf):
        
-        # The client-agent initially sends 3 requests of this form, not
-        # all of which may be needed. So some can leak into here and
-        # should be treated as chaff
-        #
-        try:
-            buf.index("ConnectToCurveballaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-            print buf
-            return
-        except ValueError:
-            pass
-        
         if self.dst_protocol == None:
             print "tls ct uni dp: dst protocol is none"
             return

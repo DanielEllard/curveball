@@ -64,16 +64,19 @@ class StencilDecoder(object):
         """
 
         spec = list()
-        n_blks = (StencilDecoder.NBITS
-                / StencilDecoder.NBITS_PER_BLK)
+        n_blks = StencilDecoder.NBITS / StencilDecoder.NBITS_PER_BLK
+
+        first_offset_in_blk = (StencilDecoder.BITS_PER_BYTE *
+                (StencilDecoder.BLKSIZE_NBYTES - StencilDecoder.NBITS_PER_BLK))
 
         blk = 0
         while blk < n_blks:
             ind = 0
 
             while ind < StencilDecoder.NBITS_PER_BLK:
-                spec.append((blk * StencilDecoder.BLKSIZE_NBITS)
-                        + (ind * StencilDecoder.BITS_PER_BYTE))
+                spec.append(first_offset_in_blk +
+                        (blk * StencilDecoder.BLKSIZE_NBITS) +
+                        (ind * StencilDecoder.BITS_PER_BYTE))
                 ind += 1
             blk += 1
 
@@ -99,6 +102,7 @@ class StencilDecoder(object):
                 print data_str
                 print byte_offset
                 print bit_offset
+                print len(data_str)
                 
             curr_bit += 1
             if curr_bit == self.BITS_PER_BYTE:

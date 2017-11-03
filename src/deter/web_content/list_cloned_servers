@@ -1,0 +1,117 @@
+#!/usr/bin/env python
+
+from lxml import etree
+from urlparse import urlparse
+from sys import argv
+from os import walk, system, getcwd
+from os.path import join, dirname, abspath
+from argparse import ArgumentParser
+import re
+
+class NotEnoughServers(Exception):
+    pass
+
+parser = ArgumentParser(description='Lists FQDN of servers in mirrored web content ',
+        epilog='This script assumes that the web server was cloned using wget.')
+# parser.add_argument('--servers', required=False, help='comma separated list of nodes to use as servers')
+# parser.add_argument('--clients', required=False, help='comma separated list of clients')
+parser.add_argument('--basehost', required=True, help='bare hostname from the base URL the content was mirrored from')
+parser.add_argument('--contentdir', default=getcwd(), help='base directory where content is located [default: %(default)s]')
+# parser.add_argument('--keep', action='store_true', help='do not remove any existing host mappings when updating /etc/hosts')
+parser.add_argument('filename', type=file, help='the HTML file that is the base')
+args = parser.parse_args()
+top = args.basehost
+# servers = args.servers.split(',')
+# clients = args.clients.split(',')
+
+hosts = set()
+csshosts = set()
+
+r = etree.parse(args.filename, etree.HTMLParser())
+root = r.getroot()
+
+def fixup(e, attr):
+    src = e.get(attr)
+    u = urlparse(src)
+    if u.netloc == '':
+        hosts.add(top)
+    else:
+        hosts.add(u.netloc)
+
+# fix all tags with src= attributes
+for e in root.findall('.//*[@src]'):
+    fixup(e, 'src')
+
+# fix <link> tags as well
+for e in root.findall('.//link[@href]'):
+    fixup(e, 'href')
+
+# walk the content directories to find all css files to look for url('...')
+pattern = re.compile("url\(['\"]?(?P<host>[^')]+)")
+for h in hosts:
+    for root, dirs, files in walk(join(args.contentdir, h)):
+        for f in files:
+            if f.endswith('.css'):
+                p = join(root, f)
+                t = open(p, 'r')
+                for w in t.readlines():
+                    m = pattern.search(w)
+                    if m:
+                        u = m.group('host')
+                        o = urlparse(u)
+                        if o.netloc == '':
+                            csshosts.add(top)
+                        else:
+                            csshosts.add(o.netloc)
+                t.close()
+
+# add hosts discovered in css to main host list
+hosts.update(csshosts)
+
+for fqdn in hosts:
+    print "%s " % (fqdn),
+
+
+# if len(servers) < len(hosts):
+#     raise NotEnoughServers('The sample content requires %d different web servers, but only %d were given on the command line.' % (len(hosts), len(servers)))
+
+# hostmap = dict(zip(servers, hosts))
+
+# # copy content to each server
+# for real, virt in hostmap.iteritems():
+#     srcdir = join(args.contentdir, virt)
+#     cmd = 'ssh -o StrictHostKeyChecking=no %(host)s sudo rsync -av %(srcdir)s/ /usr/local/lib/python2.7/dist-packages/magi/modules/server_agent_code/htdocs/' % {'host': real, 'srcdir': srcdir}
+#     print cmd
+#     system(cmd)
+
+# def f(d,s):
+#     for k,v in d.iteritems():
+#         if s == v:
+#             return k
+#     else:
+#         return None
+
+# # if the base url doesn't end in .html, create a symlink now
+# if not args.filename.name.endswith('.html'):
+#     # find the real name of the basehost
+#     real = f(hostmap, args.basehost)
+#     # find the path of the content relative to the htdocs directory on the server
+#     base = join(args.contentdir, args.basehost)
+#     offset = len(base)
+#     rel = args.filename.name[offset:]
+#     cmd = 'ssh -o StrictHostKeyChecking=no %(host)s sudo ln -s /usr/local/lib/python2.7/dist-packages/magi/modules/server_agent_code/htdocs/%(rel)s{,.html}' % {
+#             'host': real, 'rel': rel}
+#     print cmd
+#     system(cmd)
+
+# # generate mapping of hostnames that will survive multiple layers of shell decoding via ssh+sudo
+# p = ['%s=%s' % (k, v) for k, v in hostmap.iteritems()]
+# m = ' '.join(p)
+
+# # update /etc/hosts on each client
+# for h in clients:
+#     cmd = """ssh -o StrictHostKeyChecking=no %(host)s sudo %(srcdir)s/update_hosts %(keep)s %(hostmap)s""" % {
+#             'host': h, 'srcdir': abspath(dirname(argv[0])), 'hostmap': m,
+#             'keep': '--keep' if args.keep else ''}
+#     print cmd
+#     system(cmd)

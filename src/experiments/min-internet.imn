@@ -365,6 +365,7 @@ node n5 {
     interface-peer {e3 n10}
     interface-peer {e4 n11}
     interface-peer {e5 n8}
+    interface-peer {e6 n12}
 }
 
 node n6 {
@@ -413,8 +414,25 @@ node n11 {
 	!
     }
     canvas c1
-    iconcoords {565.0 333.0}
-    labelcoords {565.0 365.0}
+    iconcoords {452.0 383.0}
+    labelcoords {452.0 415.0}
+    interface-peer {eth0 n5}
+}
+
+node n12 {
+    type router
+    model host
+    network-config {
+	hostname tracker
+	!
+	interface eth0
+	 ip address 10.0.20.9/24
+	 ipv6 address 2001:2::9/64
+	!
+    }
+    canvas c1
+    iconcoords {567.0 325.0}
+    labelcoords {567.0 357.0}
     interface-peer {eth0 n5}
 }
 
@@ -466,6 +484,11 @@ link l8 {
     bandwidth 0
 }
 
+link l11 {
+    nodes {n5 n12}
+    bandwidth 0
+}
+
 canvas c1 {
     name {Canvas1}
 }
@@ -476,8 +499,6 @@ option global {
     ipv6_addresses no
     node_labels yes
     link_labels yes
-    ipsec_configs yes
-    exec_errors yes
     show_api no
     background_images no
     annotations yes

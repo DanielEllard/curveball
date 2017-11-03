@@ -21,21 +21,21 @@
  */
 
 /* length of AES key used to generate sentinels */
-#define CB_SENTINEL_KEYLEN 256
+#define CB_SENTINEL_KEYLEN		(256)
 
-#define CB_SENTINEL_HMAC_BYTES   32
-#define CB_SENTINEL_BYTES       8
-#define CB_FLOW_ID_SALT_BYTES   2
-#define CB_SENTINEL_FLOWID_BYTES  6
-#define CB_SENTINEL_LABEL_BYTES (CB_SENTINEL_HMAC_BYTES - CB_SENTINEL_BYTES)
-#define CB_SENTINEL_SIZE        28
-#define CB_STENCIL_KEY_BYTES 16
+#define CB_SENTINEL_HMAC_BYTES		(32)
+#define CB_SENTINEL_BYTES		(8)
+#define CB_FLOW_ID_SALT_BYTES		(2)
+#define CB_SENTINEL_FLOWID_BYTES	(6)
+#define CB_SENTINEL_LABEL_BYTES		(CB_SENTINEL_HMAC_BYTES - CB_SENTINEL_BYTES)
+#define CB_SENTINEL_SIZE		(28)
+#define CB_STENCIL_KEY_BYTES		(16)
 
-#define CB_DP_HELLO_SIGNATURE_OFFSET 32
-#define CB_AES_KEY_BYTES 32
-#define CB_HMAC_KEY_BYTES 64
+#define CB_DP_HELLO_SIGNATURE_OFFSET	(32)
+#define CB_AES_KEY_BYTES		(32)
+#define CB_HMAC_KEY_BYTES		(64)
 
-#define CURVEBALL_ERROR_SIZE 256
+#define CURVEBALL_ERROR_SIZE		(256)
 
 /* Sentinel generation makes N (<= CB_MAX_SENTINELS_PER_KEY) sentinels
  * per key.  i, such that (0<= i < N) is an input into the
@@ -46,7 +46,7 @@
  * It's not clear it should be anything other than a constant, since the
  * clients need to know what the value is, too. 
  */
-#define CB_MAX_SENTINELS_PER_KEY        128
+#define CB_MAX_SENTINELS_PER_KEY        (128)
 
 
 typedef struct cb_thread_dataStr {
@@ -65,9 +65,10 @@ typedef struct cb_thread_dataStr {
     unsigned char flow_id_salt[CB_FLOW_ID_SALT_BYTES];
 } cb_thread_data;
 
-PRBool curveball_set_sentinel(unsigned char*);
-PRBool curveball_set_curveball_hello_key(SECItem*);
-PRBool curveball_set_curveball_hello_iv(SECItem*);
-unsigned char* curveball_read_key_from_file(char*, int);
+PRBool curveball_set_sentinel(unsigned char *);
+PRBool curveball_set_sentinel_label(unsigned char *);
+PRBool curveball_set_curveball_hello_key(SECItem *);
+PRBool curveball_set_curveball_hello_iv(SECItem *);
+unsigned char *curveball_read_key_from_file(char *, int);
 
 #endif /* CURVEBALL_KEYDATA */

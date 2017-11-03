@@ -48,7 +48,7 @@
 
 int CURVEBALL_TUNNEL_TYPE = CURVEBALL_BIDIRECTIONAL_TUNNEL;
 
-#define DEBUGPR(a, b)  if(curveball_debug() >= a) fprintf b
+#define DEBUGPR(a, b)  if (curveball_debug() >= a) fprintf b
 
 #define CB_MIN(x, y) (((x) < (y)) ? (x) : (y))
 
@@ -66,14 +66,14 @@ static unsigned char sentinel[] = { '\xDE', '\xAD', '\xBE', '\xEF',
                                     '\0',   '\0',   '\0',   '\0' };
 
 /* FIXME --- should be thread-specific */
-static unsigned char* sentinel_label[CB_SENTINEL_LABEL_BYTES];
+static unsigned char sentinel_label[CB_SENTINEL_LABEL_BYTES];
 
 /* written only once */
 static int enable_curveball = -1;
 
 /* There's only one of these per program.
  */
-static SECKEYPublicKey* curveball_public_key;
+static SECKEYPublicKey *curveball_public_key;
 
 /* this can be written by multiple threads.  We'll just have to live with
  * the results.
@@ -147,8 +147,8 @@ int curveball_debug(void)
     static int curveball_debug_initialized = 0;
     static int CB_DEBUG = 0;
 
-    char* dbgenv = PR_GetEnv("DEBUG_CURVEBALL");
-    if(dbgenv) {
+    char *dbgenv = PR_GetEnv("DEBUG_CURVEBALL");
+    if (dbgenv) {
         CB_DEBUG = atoi(dbgenv);
     }
     curveball_debug_initialized = 1;
@@ -157,11 +157,11 @@ int curveball_debug(void)
 
 /* Initialize socket-specific data,
  */
-void curveball_thread_init(sslSocket* ss)
+void curveball_thread_init(sslSocket *ss)
 {
-    cb_thread_data* cbt = &ss->cbt;
+    cb_thread_data *cbt = &ss->cbt;
 
-    if(curveball_is_enabled(2)) {
+    if (curveball_is_enabled(2)) {
         DEBUGPR(1, (stderr, "curveball_thread_init(socket %x) thread %x\n",
                     (unsigned int) ss, (unsigned int)PR_GetCurrentThread()));
 
@@ -185,12 +185,12 @@ void curveball_thread_init(sslSocket* ss)
 }
 
 static PRBool
-curveball_set_aes(SECItem* dest, SECItem* src)
+curveball_set_aes(SECItem *dest, SECItem *src)
 {
     DEBUGPR(1, (stderr, "curveball_set_aes thread %x\n",
                 (unsigned int)PR_GetCurrentThread()));
 
-    if(src->len > dest->len) {
+    if (src->len > dest->len) {
     	PR_snprintf(curveball_error,
                     sizeof(curveball_error),
                     "src key len (%d) larger than dest storage space (%d)",
@@ -201,7 +201,7 @@ curveball_set_aes(SECItem* dest, SECItem* src)
     }
 
     memcpy(dest->data, src->data, dest->len < src->len? dest->len: src->len);
-    if(src->len < dest->len) {
+    if (src->len < dest->len) {
         memset(&dest->data[src->len], 0, (dest->len - src->len));
         dest->len = src->len;
     }
@@ -215,21 +215,22 @@ pp_key(SECKEYPublicKey *key)
 
     fprintf(stderr, "KEY type %d\n", key->keyType);
     switch (key->keyType) {
-    case rsaKey:
-        fprintf(stderr, "  pubExp len %d type %d\n",
-                key->u.rsa.publicExponent.len, key->u.rsa.publicExponent.type);
-        fprintf(stderr, "  pubMod len %d type %d\n",
-                key->u.rsa.modulus.len, key->u.rsa.modulus.type);
-        break;
-    default:
-        fprintf(stderr, "    UNKNOWN TYPE\n");
+	case rsaKey:
+	    fprintf(stderr, "  pubExp len %d type %d\n",
+		    key->u.rsa.publicExponent.len,
+		    key->u.rsa.publicExponent.type);
+	    fprintf(stderr, "  pubMod len %d type %d\n",
+		    key->u.rsa.modulus.len, key->u.rsa.modulus.type);
+	    break;
+	default:
+	    fprintf(stderr, "    UNKNOWN TYPE\n");
     }
 }
 
-SECKEYPublicKey*
-curveball_cert(char* certfile, char* password)
+SECKEYPublicKey *
+curveball_cert(char *certfile, char *password)
 {
-    SECKEYPublicKey* pubkey;
+    SECKEYPublicKey *pubkey;
     CERTCertificate *cert;
 
     cert = PK11_FindCertFromNickname(certfile, password);
@@ -262,7 +263,7 @@ curveball_cert(char* certfile, char* password)
  * DP, the sentinel may be a fixed field like "deadbeef" for debugging).
  */
 PRBool
-curveball_set_sentinel(unsigned char* sentinel_in)
+curveball_set_sentinel(unsigned char *sentinel_in)
 {
     /* FIXME: should be thread specific */
     memcpy(sentinel, sentinel_in, CB_SENTINEL_BYTES);
@@ -273,9 +274,9 @@ curveball_set_sentinel(unsigned char* sentinel_in)
  * before curveball_set_sentinel
  */
 PRBool
-curveball_set_sentinel_label(unsigned char* sentinel_label_in)
+curveball_set_sentinel_label(unsigned char *sentinel_label_in)
 {
-    /* FIXME: should be thread specific */
+	/* FIXME: should be thread specific */
     memcpy(sentinel_label, sentinel_label_in, CB_SENTINEL_LABEL_BYTES);
     return PR_TRUE;
 }
@@ -284,31 +285,31 @@ curveball_set_sentinel_label(unsigned char* sentinel_label_in)
  * Called by a user program to set the "hello key"
  */
 PRBool
-curveball_set_curveball_hello_key(SECItem* newkey)
+curveball_set_curveball_hello_key(SECItem *newkey)
 {
     /* FIXME: shouldn't this be thread-specific? */
     curveball_asciify("Setting new aes key: ", newkey->data, 32);
 
-    if(curveball_set_aes(&curveball_aes_curveball_hello_key, newkey)) {
+    if (curveball_set_aes(&curveball_aes_curveball_hello_key, newkey)) {
         return PR_TRUE;
     }
     return PR_FALSE;
 }
 
 PRBool
-curveball_set_curveball_hello_iv(SECItem* newkey)
+curveball_set_curveball_hello_iv(SECItem *newkey)
 {
     /* FIXME: shouldn't this be thread-specific? */
-    if(curveball_set_aes(&curveball_aes_curveball_hello_iv, newkey)) {
+    if (curveball_set_aes(&curveball_aes_curveball_hello_iv, newkey)) {
         return PR_TRUE;
     }
     return PR_FALSE;
 }
 
 PRBool
-curveball_decoy_proxy_in_path(PRFileDesc* sslf)
+curveball_decoy_proxy_in_path(PRFileDesc *sslf)
 {
-    sslSocket* ss = ssl_FindSocket(sslf);
+    sslSocket *ss = ssl_FindSocket(sslf);
     return ss->ssl3.curveball_got_dp_hello;
 }
 
@@ -318,17 +319,17 @@ curveball_decoy_proxy_in_path(PRFileDesc* sslf)
 int
 curveball_is_enabled(int level)
 {
-    char* envar;
+    char *envar;
 
-    if(enable_curveball == -1) {
-        if(!curveball_cert("curveball", "curveball")) {
+    if (enable_curveball == -1) {
+        if (!curveball_cert("curveball", "curveball")) {
             fprintf(stderr, "Can't get curveball cert info: %s\n",
                     curveball_error);
             enable_curveball = 0;
             return 0;
         }
 
-        if((envar = CB_GetEnv("CURVEBALL_ENABLE"))) {
+        if ((envar = CB_GetEnv("CURVEBALL_ENABLE"))) {
             enable_curveball = atoi(envar);
         }
         else {
@@ -337,7 +338,7 @@ curveball_is_enabled(int level)
 
         (void) curveball_debug();
 
-        /* if(enable_curveball) */
+        /* if (enable_curveball) */
         /*     curveball_config(); */
         DEBUGPR(1, (stderr, "curveball_is_enabled: %d; thread %x\n",
                     enable_curveball, (unsigned int)PR_GetCurrentThread()));
@@ -355,41 +356,69 @@ curveball_enable(int value)
 }
 
 SECStatus
-curveball_getpeer(sslSocket* ss)
+curveball_getpeer(sslSocket *ss)
 {
-    if(! ss->peername_valid) {
-        if(ss->ops->getpeername(ss, &ss->peername) != PR_SUCCESS) {
+    if (! ss->peername_valid) {
+        if (ss->ops->getpeername(ss, &ss->peername) != PR_SUCCESS) {
             /* can't tell if we should probe, so don't probe */
             return SECFailure;
-        } else {
+        }
+	else {
             ss->peername_valid = PR_TRUE;
         }
     }
     return SECSuccess;
 }
+#define CB_BITS_PER_BYTE 8 /* TODO -- should come from bits.h */
 
 SECStatus
-curveball_generate_sentinel(sslSocket*ss, unsigned char *data, int len) {
+curveball_generate_sentinel(sslSocket *ss, unsigned char *data, int len) {
 
-    if(curveball_getpeer(ss) != SECSuccess) {
+    unsigned int byte_offset = len - 1;
+    unsigned char xor_byte = sentinel_label[CB_SENTINEL_LABEL_BYTES - 1];
+    int i = 0;
+
+    if (curveball_getpeer(ss) != SECSuccess) {
         fprintf(stderr, "GETPEER FAILED\n");
         return SECFailure;
     }
     else {
-        if(! cbchooser_test(ss->url,
-                            ss->peername.inet.ip,
-                            PR_ntohs(ss->peername.inet.port),
-                            CBCHOOSER_SOCK_STREAM)) {
+        if (! cbchooser_test(ss->url, ss->peername.inet.ip,
+		    PR_ntohs(ss->peername.inet.port),
+		    CBCHOOSER_SOCK_STREAM)) {
             fprintf(stderr, "CBCHOOSER SAID NO\n");
             return SECFailure;
         }
     }
 
-    /* beging by populating the sentinel with random bits */
+    /* begin by populating the sentinel with random bits */
     PK11_GenerateRandom(data, len);
 
     /* Now overwrite with the curveball-generated sentinel bits */
-    memcpy(data, sentinel, CB_SENTINEL_BYTES < len? CB_SENTINEL_BYTES: len);
+    memcpy(data, sentinel, CB_SENTINEL_BYTES < len ? CB_SENTINEL_BYTES : len);
+
+    /* For tls-unidirectional, we set bit 0 in the last byte of
+     * the data to 0
+     * For tls-bidirectional, we set bit 0 in the last byte of
+     * the data to 1
+     *
+     * We then xor the last byte of the data with the last byte of the
+     * sentinel label, to encrypt the indicator bit.
+     */
+    if (CURVEBALL_TUNNEL_TYPE == CURVEBALL_UNIDIRECTIONAL_TUNNEL) {
+	data[byte_offset] |= 1;
+    }
+    else {
+	data[byte_offset] &= ~1;
+    }
+    data[byte_offset] ^= xor_byte;
+
+    /*
+    for (i = 0; i < 24; i++) {
+	printf("%.2x", sentinel_label[i]);
+    }
+    printf("\n");
+    */
 
     memset(ss->cbt.sent_sentinel, '\0', CB_SENTINEL_BYTES);
     memcpy(ss->cbt.sent_sentinel, sentinel,
@@ -401,56 +430,78 @@ curveball_generate_sentinel(sslSocket*ss, unsigned char *data, int len) {
 }
 
 void
-curveball_printable(char* prefix, unsigned char* buf, int len)
+curveball_printable(char *prefix, unsigned char *buf, int len)
 {
-    if(prefix != NULL)
+    if (prefix != NULL) {
         printf("\n%s: (len %d)", prefix, len);
-    if(buf == NULL) printf("NULL buf ptr");
+    }
+
+    if (buf == NULL) {
+	printf("NULL buf ptr");
+    }
     else {
         int i;
 
-        for(i = 0; i < len && i < 80; i++) {
-            if(isspace(buf[i])) printf(" ");
-            else if(isprint(buf[i])) printf("%c", buf[i]);
-            else printf(".");
+        for (i = 0; i < len && i < 80; i++) {
+            if (isspace(buf[i])) {
+		printf(" ");
+	    }
+            else if (isprint(buf[i])) {
+		printf("%c", buf[i]);
+	    }
+            else {
+		printf(".");
+	    }
         }
-        if(i >= 80) printf(". . . .");
+        if (i >= 80) {
+	    printf(". . . .");
+	}
     }
-    if(prefix) printf("\n");
+    if (prefix) {
+	printf("\n");
+    }
 }
 
 void
-curveball_asciify(const char* prefix, const unsigned char* buf, const int len)
+curveball_asciify(const char *prefix, const unsigned char *buf, const int len)
 {
     int i;
 
-    if(curveball_debug() == 0) return;
+    if (curveball_debug() == 0) {
+	return;
+    }
 
     /* Use this when you have to reproduce this routine in other libraries */
     /* static curveball_debug_initialized = 0; */
     /* static CB_DEBUG = 0; */
 
-    /* if(! curveball_debug_initialized) { */
+    /* if (! curveball_debug_initialized) { */
     /*     char* dbgenv = PR_GetEnv("DEBUG_CURVEBALL"); */
-    /*     if(dbgenv) { */
+    /*     if (dbgenv) { */
     /*         CB_DEBUG = atoi(dbgenv); */
     /*     } */
     /*     curveball_debug_initialized = 1; */
     /* } */
-    /* if(cb_debug == 0 && CB_DEBUG == 0) return; */
+    /* if (cb_debug == 0 && CB_DEBUG == 0) return; */
 
     /* call with NULL prefix to just dump the hex bits, with no
      * decorations
      */
-    if(prefix != NULL)
+    if (prefix != NULL) {
         printf("\n%s: (len: %d)", prefix, len);
-    if(buf == NULL) printf("NULL buf ptr");
+    }
+
+    if (buf == NULL) {
+	printf("NULL buf ptr");
+    }
     else {
-        for(i = 0; i < len; i++) {
+        for (i = 0; i < len; i++) {
             printf("%02x", buf[i]);
         }
     }
-    if(prefix != NULL) printf("\n");
+    if (prefix != NULL) {
+	printf("\n");
+    }
     fflush(stdout);
 }
 
@@ -486,10 +537,9 @@ curveball_asciify(const char* prefix, const unsigned char* buf, const int len)
  * http://www.mozilla.org/projects/security/pki/nss/tech-notes/tn5.html
  */
 SECStatus curveball_generate_sentinel_data(int seed,
-                                           unsigned char* keybuf,
-                                           int keybuflen,
-                                           unsigned char* sentinel,
-                                           unsigned char* sentinel_label) {
+	unsigned char *keybuf, int keybuflen,
+	unsigned char *sentinel, unsigned char *sentinel_label)
+{
     time_t t;
     struct tm *tmp;
     /* +11 is enough room for space + 9-digit number + NULL */
@@ -499,12 +549,14 @@ SECStatus curveball_generate_sentinel_data(int seed,
     unsigned int hash_output_len = sizeof(hash_output);
     SECStatus rv;
     SECItem param;
-    PK11Context* DigestContext;
+    PK11Context *DigestContext;
 
     CK_MECHANISM_TYPE hmacMech = CKM_SHA256_HMAC;
     SECItem keyItem;
-    PK11SlotInfo* slot;
-    PK11SymKey* SymKey;
+    PK11SlotInfo *slot;
+    PK11SymKey *SymKey;
+
+    int i;
 
     keyItem.type = siBuffer;
     keyItem.data = keybuf;
@@ -512,20 +564,18 @@ SECStatus curveball_generate_sentinel_data(int seed,
 
     slot = PK11_GetBestSlot(hmacMech, NULL);
 
-    SymKey = PK11_ImportSymKey(slot,
-			       hmacMech,
-			       PK11_OriginUnwrap,
-			       CKA_SIGN,
-			       &keyItem,
-			       NULL);
+    SymKey = PK11_ImportSymKey(slot, hmacMech, PK11_OriginUnwrap, CKA_SIGN,
+	    &keyItem, NULL);
 
     t = time(NULL);
     tmp = gmtime(&t);
 
-    if(CB_PER_DAY_SENTINELS)
+    if (CB_PER_DAY_SENTINELS) {
         strftime(time_str, sizeof(time_str), "%Y-%m-%d", tmp);
-    else
+    }
+    else {
         strftime(time_str, sizeof(time_str), "%Y-%m-%d %H", tmp);
+    }
     PR_snprintf((char*) hash_input, sizeof(hash_input), "%s %d", time_str, seed);
 
     param.type = siBuffer;
@@ -533,7 +583,8 @@ SECStatus curveball_generate_sentinel_data(int seed,
     param.len = 0;
 
     DigestContext = PK11_CreateContextBySymKey(hmacMech, CKA_SIGN,
-                                               SymKey, &param);
+	    SymKey, &param);
+
     /* FIXME: check rv result */
     rv = PK11_DigestBegin(DigestContext);
     rv = PK11_DigestOp(DigestContext, hash_input, strlen((char*)hash_input));
@@ -544,14 +595,14 @@ SECStatus curveball_generate_sentinel_data(int seed,
      */
 
     memmove(sentinel, hash_output, CB_SENTINEL_BYTES);
-    memmove(sentinel_label, &hash_output[CB_SENTINEL_BYTES], CB_SENTINEL_LABEL_BYTES);
+    memmove(sentinel_label, &hash_output[CB_SENTINEL_BYTES],
+	    CB_SENTINEL_LABEL_BYTES);
 
     return rv;
 }
 
 void
-curveball_generate_pms_data(sslSocket* ss,
-                            unsigned char* random)
+curveball_generate_pms_data(sslSocket *ss, unsigned char *random)
 {
     /* We construct the premaster secret from SentinelLabel,
      * ServerRandom (including the ServerTimestamp), and
@@ -590,34 +641,48 @@ curveball_generate_pms_data(sslSocket* ss,
     memcpy(random, pms_hash, CURVEBALL_PMS_RANDOM_BYTES);
 
     curveball_asciify("CLIENT PREMASTER SECRET: ",
-                      random,
-                      CURVEBALL_PMS_RANDOM_BYTES);
+	    random, CURVEBALL_PMS_RANDOM_BYTES);
 }
 
+
+#define RESPONSE_UNI "HTTP/1.1"
 
 /*
  * Check for dp hello in tls unidirectional
  */
 int
-curveball_is_dp_hello_uni(sslSocket* ss, sslBuffer* plaintext)
+curveball_is_dp_hello_uni(sslSocket *ss, sslBuffer *plaintext)
 {
-	if (CURVEBALL_TUNNEL_TYPE == CURVEBALL_UNIDIRECTIONAL_TUNNEL) {
-		/* Actual check will occur in ccp_client, so we return 1 here */
-		printf("got welcome to curveball!!!");
-		return 1;
-	} else {
-		return 0;
-	}
+    char *responsePtr = strchr(plaintext->buf, RESPONSE_UNI[0]);
+
+    if (CURVEBALL_TUNNEL_TYPE == CURVEBALL_BIDIRECTIONAL_TUNNEL) {
+	return 0;
+    }
+
+    if ((plaintext->len > sizeof(RESPONSE_UNI)) && responsePtr) {
+        for (;
+            responsePtr < &plaintext->buf[plaintext->len - sizeof(RESPONSE_UNI)];
+            responsePtr++) {
+
+            if (strstr(responsePtr, RESPONSE_UNI)) {
+                /* Actual check will occur in ccp_client, so we return 1 here */
+                return 1;
+            }
+        }
+    }
+
+    return 0;
 }
+
+#define WELCOME_BI "welcome to curveball"
 
 /*
  * Check for dp hello in tls bidirectional
  */
 int
-curveball_is_dp_hello(sslSocket* ss, sslBuffer* plaintext)
+curveball_is_dp_hello(sslSocket *ss, sslBuffer *plaintext)
 {
-#define WELCOME_BI "welcome to curveball"
-	char* welcomePtr = strchr(plaintext->buf, WELCOME_BI[0]);
+    char *welcomePtr = strchr(plaintext->buf, WELCOME_BI[0]);
 
     if ((plaintext->len > sizeof(WELCOME_BI)) && welcomePtr) {
         for (;

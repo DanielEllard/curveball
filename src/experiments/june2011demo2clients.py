@@ -136,8 +136,8 @@ class June11Demo2Client(CurveballExperiment):
         self.run('dp', 'sudo /etc/init.d/danted stop ; sudo /etc/init.d/danted start')
         
         
-        #self.run('dp', 'cd %s/scripts ; sudo python %s decoyproxy.py -s' % (self.prefix, self.profile_str))
-        self.run('dp', 'cd %s/scripts ; sudo python %s decoyproxy.py -t' % (self.prefix, self.profile_str))
+        #self.run('dp', 'cd %s/scripts ; sudo python %s cb-dp -s' % (self.prefix, self.profile_str))
+        self.run('dp', 'cd %s/scripts ; sudo python %s cb-dp -t' % (self.prefix, self.profile_str))
         try:
             self.expect('dp', "DP Running", timeout=5)
         except (pexpect.EOF, pexpect.TIMEOUT):
@@ -145,8 +145,8 @@ class June11Demo2Client(CurveballExperiment):
             self.stop(None)
             return
                 
-        self.run('dr', 'cd %s/scripts ; sudo python %s dr.py --decoyname=internet 2> /dev/null' % (self.prefix, self.profile_str))
-#        self.run('dr', 'cd %s/scripts ; sudo python %s dr.py -c dr:443 -t 2> /dev/null' % (self.prefix, self.profile_str))
+        self.run('dr', 'cd %s/scripts ; sudo python %s cb-dr --decoyname=internet 2> /dev/null' % (self.prefix, self.profile_str))
+#        self.run('dr', 'cd %s/scripts ; sudo python %s cb-dr -c dr:443 -t 2> /dev/null' % (self.prefix, self.profile_str))
         try:
             self.expect('dr', "DR Running", timeout=5)
         except (pexpect.EOF, pexpect.TIMEOUT):
@@ -158,7 +158,7 @@ class June11Demo2Client(CurveballExperiment):
         time.sleep(1)
         
         
-        self.run('client', 'cd %s/scripts ; python %s client.py -d 171.159.228.150:443 -t' % (self.prefix, self.profile_str))
+        self.run('client', 'cd %s/scripts ; python %s curveball-client -d 171.159.228.150:443 -t' % (self.prefix, self.profile_str))
         try:
             self.expect('client', 'welcome to curveball', timeout=5)
             print "Client successfully established covert tunnel"
@@ -166,7 +166,7 @@ class June11Demo2Client(CurveballExperiment):
             print "Client did not connect to curveball, expected a welcome message"
             print "Run diagnostics for more information"
 
-        self.run('client2', 'cd %s/scripts ; python %s client.py -d 171.159.228.150:443 -t' % (self.prefix, self.profile_str))
+        self.run('client2', 'cd %s/scripts ; python %s curveball-client -d 171.159.228.150:443 -t' % (self.prefix, self.profile_str))
         try:
             self.expect('client2', 'welcome to curveball', timeout=5)
             print "Client2 successfully established covert tunnel"

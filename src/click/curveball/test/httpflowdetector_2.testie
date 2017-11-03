@@ -48,7 +48,7 @@ http_flow_detector[2] -> Discard;
 ip_classifier[1] -> c4 :: Counter -> Discard;
 
 %expect stderr
-HTTPFlowDetector::sentinel_packet: Packet contains valid sentinel.
+HTTPFlowDetector::sentinel_packet: packet contains valid sentinel
 HTTPFlowDetector::process_http_data_packet: DR2DPEncoder not configured; can't redirect flow.
 
 %expect OUT1

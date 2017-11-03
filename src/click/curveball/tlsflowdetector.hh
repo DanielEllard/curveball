@@ -38,18 +38,10 @@ class TLSFlowDetector : public SentinelDetector { public:
 
     void * cast(const char *name);
 
-    void push(int port, Packet *p);
-
   private:
 
-    // Returns true if the packet is a TCP SYN; false otherwise.
-    bool syn_packet(Packet *p);
-
     // Handles incoming non-SYN TCP packets.
-    void process_non_syn_packet(Packet *p);
-
-    // Handles ACKs in TCP handshake.
-    void process_client_ack(Packet *p, FlowEntry *entry);
+    virtual void process_non_syn_packet(Packet *p);
 
     // Handles incoming TLS Hello messages.
     void process_tls_client_hello(Packet *p, FlowEntry *entry);
@@ -57,11 +49,6 @@ class TLSFlowDetector : public SentinelDetector { public:
 
     // Handles segmented sentinel packets.
     void process_sentinel_segment(Packet *p, FlowEntry *entry);
-
-    // Determines if the given buffer contains a Curveball sentinel.
-    bool sentinel_packet(const IPFlowID &flow_key, const char *buf, int len);
-    bool string_sentinel(const char *buf, int len);
-
 };
 
 

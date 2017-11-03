@@ -237,10 +237,8 @@ class CB_BloomFilter(object):
         # n ~= (k * m) * ((ln(2) ** 2) / abs(ln(P)))
         # m ~= n * abs(ln(P)) / (k * (ln(2) ** 2))
         num_slices = int(math.ceil(math.log(1 / error_rate, 2)))
-        # the error_rate constraint assumes a fill rate of 1/2
-        # so we double the capacity to simplify the API
         bits_per_slice = int(math.ceil(
-            (2 * capacity * abs(math.log(error_rate))) /
+            (capacity * abs(math.log(error_rate))) /
             (num_slices * (math.log(2) ** 2))))
         
         # Then change the parameters, assuming the memory size is at
@@ -254,20 +252,25 @@ class CB_BloomFilter(object):
         # ln(error_rate) = (1 - exp(-alpha*k))**k, where alpha = n/M
         cb_num_slices = 6
 
-        # Now adjust the size of the array to the next largest power of
+        # Now double the size of the Bloom filter and adjust
+        # the size of the array to the next largest power of
         # 2 (to meet the DR's requirements) and recalculate the
         # bits/slice.  As long as the filter size is the same or
         # increases, then the resulting bloom filter will false
         # positive performance no worse then error_rate
 
         #print 'exponent', int(math.ceil(
-        #                    math.log(num_slices * bits_per_slice,2)))
+        #                    math.log(2 * num_slices * bits_per_slice,2)))
         #print 'new size of array', (1 << int(math.ceil(
-        #                    math.log(num_slices * bits_per_slice,2))))
+        #                    math.log(2 * num_slices * bits_per_slice,2))))
         cb_bits_per_slice = int(math.ceil(
                 (1 << int(math.ceil(
-                            math.log(num_slices * bits_per_slice,2)))) /
+                            math.log(2 * num_slices * bits_per_slice,2)))) /
                 cb_num_slices))
+        # awj debug
+        # print "2 * num_slices * bits_per_slice = ", 2 * num_slices * bits_per_slice
+        # print "cb_bits_per_slice = ", cb_bits_per_slice
+        
 
         hash_size = int(
                 math.ceil(math.log(cb_num_slices * cb_bits_per_slice, 2)))

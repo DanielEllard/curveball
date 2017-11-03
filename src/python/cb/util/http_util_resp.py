@@ -32,21 +32,33 @@ import cb.util.cb_constants as const
 import cb.util.security_util as security_util
 from M2Crypto import RSA, BIO, EVP
 
+from wsgiref.handlers import format_date_time
+from datetime import datetime
+from time import mktime
 
+def create_http_resp(self, key, hmac, server_name, content_type, text):
 
-def create_http_resp(self,
-        key, hmac, server_name, response_date, content_type, text):
+    # For simplicity we always use the dp-generated date, not the
+    # pulled off the response. Otherwise we would need to be
+    # updating the decoy date
+    #
+    timetuple = mktime(datetime.now().timetuple())
+    date = 'Date: ' + str(format_date_time(timetuple)) + const.END_LINE
 
+    # Payload
+    #
     text = security_util.encrypt_text( self, text, key, False, True, False )
     payload = hmac + text
 
+    # Other header fields
+    #
     http_ok = 'HTTP/1.1 200 OK' + const.END_LINE
-    date = 'Date: ' + const.END_LINE
-    server = 'Server: ' + const.END_LINE
     content_len = 'Content-Length: ' + str( len( payload ) ) + const.END_LINE
     content_encoding = 'Content-Encoding: gzip' + const.END_LINE
 
-    resp = ( http_ok + #date + #server +
+    resp = ( http_ok +
+             date +
+             server_name +
              content_len +
              content_type +
              content_encoding +

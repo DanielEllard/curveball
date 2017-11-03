@@ -60,11 +60,11 @@ class CLIENT(object):
 
         # reset the key each time the experiment starts.
         #
-        cb.run('client', 'sudo %s/scripts/client-key-config -c cbtest0' %
+        cb.run('client', 'sudo %s/scripts/curveball-key-config -c cbtest0' %
                 cb.install_dir)
 
         cb.run('client',
-               'cd %s/scripts ; sudo python %s client.py %s %s -d %s:%d %s' %
+               'cd %s/scripts ; sudo python %s curveball-client %s %s -d %s:%d %s' %
                (cb.install_dir, cb.profile_str, vpn_flag, crypto_flag,
                    decoy, port, http_flag))
 
@@ -131,13 +131,13 @@ class DP(object):
         crypto_flag = '--permit-deadbeef' if use_deadbeef else ''
 
         if use_pdb:
-            cb.run(dp, 'cd %s/scripts ; sudo pdb decoyproxy.py %s -t' % (
+            cb.run(dp, 'cd %s/scripts ; sudo pdb cb-dp %s -t' % (
                     cb.install_dir, crypto_flag))
             cb.run(dp, 'b /usr/lib/python/dist-packages/twisted/python/failure.py:499')
             cb.run(dp, 'r -t')
         else: 
-            cb.run(dp, 'cd %s/scripts ; sudo python decoyproxy.py -s' % cb.install_dir)
-            cb.run(dp, 'cd %s/scripts ; sudo python %s decoyproxy.py %s -t' % (
+            cb.run(dp, 'cd %s/scripts ; sudo python cb-dp -s' % cb.install_dir)
+            cb.run(dp, 'cd %s/scripts ; sudo python %s cb-dp %s -t' % (
                     cb.install_dir, cb.profile_str, crypto_flag))
         try:
             cb.expect(dp, "DP Running", timeout=20)
@@ -181,7 +181,7 @@ class DR(object):
         # tell this dr where its dp is
         dp_arg = '--decoyproxy %s:4001' % dpname
 
-        cmd = ('cd %s/scripts ; sudo %s ./dr.py %s %s %s %s %s 2> /dev/null' %
+        cmd = ('cd %s/scripts ; sudo %s ./cb-dr %s %s %s %s %s 2> /dev/null' %
                 (cb.install_dir, cb.profile_str,
                     crypto_flag, clientname_arg, decoyname_arg, dp_arg, kernel_flag))
         cb.run(dr, cmd)
@@ -217,9 +217,9 @@ class FIREWALL(object):
         for block in to_be_blocked:
             cb.run(firewall, 'sudo iptables -A FORWARD -d %s -j DROP' % block)
 
-        cb.run(firewall, 'sudo iptables -A FORWARD -d 74.125.0.0/16 -j DROP')
-        cb.run(firewall, 'sudo iptables -A FORWARD -d 72.0.0.0/8 -j DROP')
-        cb.run(firewall, 'sudo iptables -A FORWARD -d 192.1.100.148 -j DROP')
+        # cb.run(firewall, 'sudo iptables -A FORWARD -d 74.125.0.0/16 -j DROP')
+        # cb.run(firewall, 'sudo iptables -A FORWARD -d 72.0.0.0/8 -j DROP')
+        # cb.run(firewall, 'sudo iptables -A FORWARD -d 192.1.100.148 -j DROP')
 
 class QUILT(object):
     @staticmethod
@@ -235,7 +235,7 @@ class QUILT(object):
               use_http=True,
               use_https=True):
         # start dante on the quilt server
-        cb.run(quilt, 'cd %s/scripts ; sudo python decoyproxy.py -s' % cb.install_dir)
+        cb.run(quilt, 'cd %s/scripts ; sudo python cb-dp -s' % cb.install_dir)
         cb.run(quilt,
                'cd %s/scripts ; sudo python quilt-server'
                % cb.install_dir)

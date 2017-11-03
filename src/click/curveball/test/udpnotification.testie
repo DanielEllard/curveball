@@ -55,7 +55,7 @@ http_flow_detector[2]
 ip_classifier[1] -> c4 :: Counter -> Discard;
 
 %expect stderr
-HTTPFlowDetector::string_sentinel: Packet contains a valid sentinel.
+HTTPFlowDetector::sentinel_packet: packet contains valid sentinel
 udp: 0.000000: id 6903 ttl 64 tos 0 length 68 10.0.0.1.60958 > 128.89.70.134.9: udp 48
   45000044 1af70000 40118ed2 0a000001 80594686 ee1e0009
   00303d1a baadfeed 00000000 80594642 80594686 ee1e0050

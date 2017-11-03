@@ -37,6 +37,7 @@ from cb.dr2dp.dr2dp import DR2DPMessageSentinelFilter
 from cb.dr2dp.dr2dp import DR2DPMessageRedirectFlow
 from cb.dr2dp.dr2dp import DR2DPMessageRemoveFlow
 from cb.dr2dp.dr2dp import DR2DPMessageTLSFlowEstablished
+from cb.dr2dp.dr2dp import DR2DPMessageICMP
 
 from cb.util.dir_watcher import DirWatcher
 
@@ -67,6 +68,7 @@ class DstProtocol(Protocol):
             DR2DPMessage1.OP_TYPE_REMOVE_FLOW : self.req_remove_flow,
             DR2DPMessage1.OP_TYPE_REASSIGN_FLOW : self.req_unimplemented,
             DR2DPMessage1.OP_TYPE_TLS_FLOW_ESTABLISHED : self.req_unimplemented,
+            DR2DPMessage1.OP_TYPE_ICMP : self.req_unimplemented,
             DR2DPMessage1.OP_TYPE_DH_BLACKLIST : self.req_unimplemented
         }
 
@@ -78,6 +80,7 @@ class DstProtocol(Protocol):
             DR2DPMessage1.OP_TYPE_REMOVE_FLOW : self.res_unimplemented,
             DR2DPMessage1.OP_TYPE_REASSIGN_FLOW : self.res_unimplemented,
             DR2DPMessage1.OP_TYPE_TLS_FLOW_ESTABLISHED : self.res_unimplemented,
+            DR2DPMessage1.OP_TYPE_ICMP : self.res_unimplemented,
             DR2DPMessage1.OP_TYPE_DH_BLACKLIST : self.res_unimplemented
         }
 
@@ -232,6 +235,7 @@ class SrcProtocol(Protocol):
 
     def __init__(self):
 
+        self.log = logging.getLogger('dr2dp.dr')
         #self.dp_interface = None
         self.buff = ''
 
@@ -240,6 +244,7 @@ class SrcProtocol(Protocol):
             DR2DPMessage1.OP_TYPE_FORWARD_IP : self.forward_ip,
             DR2DPMessage1.OP_TYPE_REDIRECT_FLOW : self.redirect_flow,
             DR2DPMessage1.OP_TYPE_TLS_FLOW_ESTABLISHED : self.tls_flow,
+            DR2DPMessage1.OP_TYPE_ICMP : self.icmp,
             DR2DPMessage1.OP_TYPE_DH_BLACKLIST : self.handle_dh_blacklist,
         }
 
@@ -327,6 +332,17 @@ class SrcProtocol(Protocol):
             self.factory.dst_protocol.forward_message(msg)        
         #self.dp_interface.forward_message(msg)
         return True
+
+    def icmp(self, msg):
+        msg.__class__ = DR2DPMessageICMP
+        try:
+            msg.unpack()
+        except:
+            self.log.warn('invalid icmp message')
+            return False
+
+        if self.factory.dst_protocol:
+            self.factory.dst_protocol.forward_message(msg)
 
     def handle_dh_blacklist(self, msg):
         """

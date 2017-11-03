@@ -69,18 +69,23 @@ try:
                 'cb.ct.tlsuni',
                 'cb.ct.http',
                 'cb.ct.httpuni',
+                'cb.ct.bittorrent',
                 'cb.dr2dp',
                 'cb.gui',
                 'cb.gui.client',
                 'cb.mole',
                 'cb.noc',
-                # 'cb.quilt',
                 'cb.sentman',
                 'cb.tcphijack',
-                # 'cb.trawl',
-                'cb.twisted',
                 'cb.util',
                 'cb.vpn',
+                # the new quilting packages:
+                'qe2', 'qe2.core', 'qe2.core.test',
+                # the new remora package:
+                'remora',
+                # packages we no longer use:
+                # 'cb.quilt',
+                # 'cb.trawl',
             ])
 except BaseException, exc:
     print str(exc)

@@ -61,6 +61,6 @@ DriverManager(
 --------------------------------
 
 %expect stderr
-TLSFlowDetector::string_sentinel: Packet contains valid sentinel.
+SentinelDetector::sentinel_packet: packet contains valid sentinel
 SentinelDetector::run_timer: removed inactive flows; rescheduling timer
 SentinelDetector::run_timer: removed inactive flows; rescheduling timer

@@ -63,6 +63,8 @@ class SentinelDetector : public Element { public:
     int initialize(ErrorHandler *);
     void cleanup(CleanupStage);
 
+    void push(int port, Packet *p);
+
     // Installs the element's handlers.
     void add_handlers();
 
@@ -82,11 +84,27 @@ class SentinelDetector : public Element { public:
     void remove_flow(const IPFlowID &flow_key)
              { _flow_table.remove_flow(flow_key); }
 
+    bool redirected_flow(const IPFlowID &flow_key)
+             { return _flow_table.member_flow(flow_key); }
+
     // Handle incoming udp flow notification.
     void incoming_udp_notification(const IPFlowID &flow_key,
                                    const String &sentinel);
 
+    void redirect_icmp_packet(const IPFlowID &flow_key,
+                              Packet *p,
+                              bool to_client = false);
+
   protected:
+
+    // Returns true if the packet is a TCP SYN; false otherwise.
+    bool syn_packet(Packet *p);
+
+    // Handles ACKs in TCP handshake.
+    void process_client_ack(Packet *p, FlowEntry *entry);
+
+    // Handles incoming non-SYN TCP packets.
+    virtual void process_non_syn_packet(Packet *p);
 
     // Handles tcp server-side traffic.
     void process_server_packet(Packet *p);
@@ -100,6 +118,11 @@ class SentinelDetector : public Element { public:
     // Returns true if the DR has been notified that another DR has
     // already seen and is handling the flow.
     bool seen_flow(const IPFlowID &flow_key, const char *buf, int len);
+
+    // Determines if the given buffer contains a Curveball sentinel.
+    bool sentinel_packet(const IPFlowID &flow_key, const char *buf, int len);
+    bool filter_sentinel(const char *buf, int len);
+    bool string_sentinel(const char *buf, int len);
 
     // determine if the decoy host has been blacklisted
     bool is_blacklisted(const IPAddress & decoy_host);

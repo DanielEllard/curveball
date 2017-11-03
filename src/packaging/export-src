@@ -76,22 +76,12 @@ git checkout-index -a -f --prefix="${TARGETDIR}/"
 
 ROOT="${TARGETDIR}/src"
 
-remove_quilting() {
-
-    echo "Omitting quilting libraries and scripts"
-
-    rm -rf "${ROOT}/python/cb/quilt"
-    for app in quilt-server quilt-client ctm; do
-	rm -f "${ROOT}/scripts/${app}"
-    done
-}
-
 # Remove parts of the source tree that are unnecessary
 # for building the essential Curveball client and servers
 #
 for dir in \
 	C android attic bitarray BitTornado ears firefox grazer \
-	openssl packetplay sentinels trawler web-test ; do
+	openssl packetplay sentinels transmission trawler web-test ; do
     echo "Omitting $dir"
     rm -rf "${ROOT}/${dir}"
 done
@@ -107,6 +97,7 @@ for tarball in \
 done
 
 for extra in \
+	bbn-tools/ \
 	nss/python-nss-0.11 python/cb/trawl \
 	python/socksipy python/tests \
 	tests/stress-client \
@@ -115,6 +106,10 @@ for extra in \
 	python/cb/ct/http/good-http.txt \
 	python/cb/ct/http/MULTIFLOW.txt \
 	python/cb/ct/httpuni/unidirectional-mole-code-changes.txt \
+	docs/assessment-2014 docs/bittorrent docs/ICMPTaxonomy.txt \
+	python/cb/twisted \
+	.project .pydevproject \
+	client-u10.mk client-u12.mk \
 	; do
 
     echo "Omitting $extra"
@@ -129,25 +124,24 @@ mv "${ROOT}/scripts" "${ROOT}/old-scripts"
 mkdir "${ROOT}/scripts"
 
 for script in \
-    cb-bdh-setup cb-cleanup-dr cb-install cb-key-setup cbkm \
-    cb-noc-dhblacklist cb-noc-create-sentinel-files cb-noc-cleanup \
-    cb-shutdown cb-startup client-key-config client.py \
-    curveball-key-change decoyproxy.conf decoyproxy.py dr.py \
-    install-ca-cert install-node-cert \
+    cbnoc-bdh-setup cb-cleanup-dr cb-install cbnoc-key-setup \
+    cbnoc-keymanager \
+    cbnoc-dhblacklist cb-noc-create-sentinel-files cb-noc-cleanup \
+    cb-shutdown cb-startup-testbed curveball-key-config curveball-client \
+    curveball-key-change decoyproxy.conf cb-dp cb-dr \
+    curveball-install-test-ca-cert cb-install-test-node-cert \
     mini-httpd \
-    my-tcp4-conns pin-tcp4-route \
-    push-baddh push-baddh-core \
-    push-sentinels push-sentinels-core \
-    vpn-subnet ;
+    curveball-my-conns curveball-pin-route \
+    cbnoc-push-baddh-rem cbnoc-push-baddh-loc \
+    cbnoc-push-sentinels-rem cbnoc-push-sentinels-loc \
+    curveball-vpn-subnet curveball-cbsm \
+    remora-client remora-server remora-shutdown \
+    quilt-client quilt-server \
+    ;
 do
     mv "${ROOT}/old-scripts/${script}" "${ROOT}/scripts"
 done
 rm -rf "${ROOT}/old-scripts"
-
-# Don't put quilting in the release until the new impl
-# is stable
-#
-remove_quilting
 
 # Replace the internal Makefile with BBN flags with
 # the generic Makefile
@@ -160,7 +154,7 @@ cp "${ROOT}/click/Makefile.deb" "${ROOT}/click/Makefile"
 echo "${BUILD_INFO}" > "${ROOT}"/build-info.txt
 echo "${VERSION}" > "${ROOT}"/packaging/VERSION
 
-for doc in ${ROOT}/docs/*.htm ; do
+for doc in ${ROOT}/docs/*.htm ${ROOT}/docs/*.txt ; do
     cat "${doc}" | sed -e "s/_VERSION_/$VERSION/g" > "${doc}.tmp"
     mv "${doc}.tmp" "${doc}"
 done

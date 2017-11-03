@@ -112,6 +112,9 @@ class FlowTable {
     FlowEntry * get_flow(const IPFlowID &flow_key)
                     { return _flow_table.get_pointer(flow_key); }
 
+    bool member_flow(const IPFlowID &flow_key)
+             { return (_flow_table.find(flow_key) != _flow_table.end()); }
+
     void remove_inactive_flows();
 
     void clear() { _flow_table.clear(); }

@@ -63,7 +63,7 @@ DR2DPDecoder::configure(Vector<String> &conf, ErrorHandler *errh)
             continue;
         }
 
-        if (parts[0].equals("DETECTOR", 8)) {
+        if (parts[0].equals("DETECTOR", strlen("DETECTOR"))) {
             Element *e = cp_element(parts[1], this, errh);
             if (e != NULL ) {
                 _configured_detectors.push_back(e);
@@ -71,10 +71,12 @@ DR2DPDecoder::configure(Vector<String> &conf, ErrorHandler *errh)
                 errh->error("invalid element");
             }
 
-        } else if (parts[0].equals("FILTER_FILENAME", 15)) {
+        } else if (parts[0].equals("FILTER_FILENAME",
+                                   strlen("FILTER_FILENAME"))) {
             _filter_file = parts[1];
 
-        } else if (parts[0].equals("BLACKLIST_FILENAME", 18)) {
+        } else if (parts[0].equals("BLACKLIST_FILENAME",
+                                   strlen("BLACKLIST_FILENAME"))) {
             _dh_blacklist_file = parts[1];
 
         } else {

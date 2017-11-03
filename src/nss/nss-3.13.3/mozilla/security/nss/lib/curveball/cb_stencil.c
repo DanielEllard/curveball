@@ -197,8 +197,8 @@ cb_stencil_check(cb_stencil_enc_t *data, cb_stencil_spec_t *spec)
  * the data uninitialized.
  *
  * The default stencil, for N bits per stencil, is just the low-order
- * bit of each byte for the first N byes in each block.  For example,
- * for 8 bits per block it would be 0x01010101010101010000000000000000.
+ * bit of each byte for the last N byes in each block.  For example,
+ * for 8 bits per block it would be 0x00000000000000000101010101010101.
  *
  * This method fails when N is greater than the number of bytes per
  * block, but that's OK because it's impractical to approach this 
@@ -215,10 +215,15 @@ cb_stencil_spec_default(cb_stencil_data_t *data)
     unsigned int offset_ind = 0;
     unsigned int blk;
     unsigned int i;
+    unsigned int first_offset_in_blk;
+
+    /* The first offset to use within each blk */
+    first_offset_in_blk = CB_BITS_PER_BYTE *
+	    (CB_STENCIL_BLKSIZE_NBYTES - CB_STENCIL_NBITS_PER_BLK);
 
     for (blk = 0; blk < n_blks; blk++) {
 	for (i = 0; i < CB_STENCIL_NBITS_PER_BLK; i++) {
-	    spec->offsets[offset_ind++] =
+	    spec->offsets[offset_ind++] = first_offset_in_blk +
 		    (blk * CB_STENCIL_BLKSIZE_NBITS) + (i * CB_BITS_PER_BYTE);
 	}
     }
@@ -579,7 +584,8 @@ cb_stencil_aes_create_plaintext(const unsigned char *sr,
 int
 cb_stencil_send(PRFileDesc *ssl,
 	unsigned char *full_sentinel,
-	const unsigned char *enc_key, unsigned int enc_keysize)
+	const unsigned char *enc_key, unsigned int enc_keysize,
+	const unsigned char *suffix)
 {
     const unsigned char *sr;
     const unsigned char *tls_iv;
@@ -587,6 +593,8 @@ cb_stencil_send(PRFileDesc *ssl,
     const unsigned int tls_keysize;
     cb_stencil_enc_t plaintext;
     PRInt32 rc;
+    unsigned char *req_text;
+    unsigned long req_textlen;
 
     curveball_ssl_set_flags(ssl_SEND_FLAG_NO_SPLIT);
     rc = PR_Write(ssl, "G", 1);
@@ -629,9 +637,31 @@ cb_stencil_send(PRFileDesc *ssl,
 	return rc;
     }
 
+    if (suffix == NULL) {
+	req_textlen = sizeof(plaintext);
+	req_text = &plaintext;
+    }
+    else {
+	req_textlen = sizeof(plaintext) + strlen(suffix);
+	req_text = malloc(req_textlen + 1);
+	if (req_text == NULL) {
+	    fprintf(stderr, "error: cb_stencil_send malloc failed\n");
+	    return -1;
+	}
+	memcpy(req_text, &plaintext, sizeof(plaintext));
+	memcpy(req_text + sizeof(plaintext), suffix, strlen(suffix));
+	req_text[req_textlen] = '\0';
+	/* printf("SUFFIX = [%s]\n", suffix); */
+	/* printf("PLAINTEXT = [%s]\n", req_text); */
+    }
+
     curveball_ssl_set_flags(ssl_SEND_FLAG_NO_SPLIT);
-    rc = PR_Write(ssl, (unsigned char *) &plaintext,
-	    sizeof(plaintext));
+    rc = PR_Write(ssl, req_text, req_textlen);
+
+    if (req_text != &plaintext) {
+	free(req_text);
+    }
+
     if (rc < 0) {
 	const PRErrorCode err = PR_GetError();
 	fprintf(stderr,

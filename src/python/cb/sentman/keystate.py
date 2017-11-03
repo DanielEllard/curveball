@@ -270,13 +270,18 @@ class SentmanKey(object):
         self._update()
         return self.next_epoch_start - time.time() 
 
-    def generate(self):
+    def generate(self, do_mse=False):
         """
         Generate a new sentinel and return it, or None if a sentinel
         cannot be generated.
 
         When a sentinel is generated, the remaining_sentinels is
         decremented
+
+        If do_mse is not False, then create an MSE sentinel and sentinel
+        label and return a tuple containing the sentinel (as a binary
+        string) and the Diffie-Hellman exponent.  Otherwise, create and
+        return a TLS-style sentinel.
         """
 
         self._update()
@@ -298,11 +303,20 @@ class SentmanKey(object):
 
         self.remaining_sentinels -= 1
 
-        hex_sentinel = cb.noc.gen_sentinels.create_sentinel(
-                binascii.hexlify(self.key), self.remaining_sentinels)
-        sentinel = binascii.unhexlify(hex_sentinel)
+        if do_mse:
+            (hex_sentinel, dh_exp, dh_pub) = \
+                    cb.noc.gen_sentinels.create_mse_sentinel(
+                            binascii.hexlify(self.key),
+                            self.remaining_sentinels)
+            sentinel = binascii.unhexlify(hex_sentinel)
 
-        return sentinel
+            return (sentinel, dh_exp, dh_pub)
+        else:
+            hex_sentinel = cb.noc.gen_sentinels.create_sentinel(
+                    binascii.hexlify(self.key), self.remaining_sentinels)
+            sentinel = binascii.unhexlify(hex_sentinel)
+
+            return sentinel
 
 class SentmanKeyCollection(object):
     """
@@ -421,11 +435,16 @@ class SentmanKeyCollection(object):
             else:
                 return False
 
-    def generate(self):
+    def generate(self, do_mse=False):
         """
         Generate and return a new sentinel from a keystate in the collection,
         or return None if the collection is empty or all of the keys are
         exhausted in the current epoch.
+
+        If do_mse is not False, then create an MSE sentinel and sentinel
+        label and return a tuple containing the sentinel (as a binary
+        string) and the Diffie-Hellman exponent.  Otherwise, create and
+        return a TLS-style sentinel.
 
         If there are no keys at all, return a ValueError to differentiate this
         from running out of sentinels.
@@ -443,7 +462,11 @@ class SentmanKeyCollection(object):
 
             for key in self.key2state:
                 keystate = self.key2state[key]
-                sentinel = keystate.generate()
+                if do_mse:
+                    (sentinel, dh_exp, dh_pub) = keystate.generate(do_mse=True)
+                else:
+                    sentinel = keystate.generate()
+
                 if sentinel:
                     break
 
@@ -452,7 +475,10 @@ class SentmanKeyCollection(object):
             if sentinel:
                 self.persist_state()
 
-        return sentinel
+        if do_mse:
+            return (sentinel, dh_exp, dh_pub)
+        else:
+            return sentinel
 
     def remaining(self):
         """
@@ -695,11 +721,21 @@ if __name__ == '__main__':
 
         return True
 
+    def test_mse():
+
+        fake_key1 = chr(0x11) * KEY_LENGTH_BYTES
+        key1 = SentmanKey(fake_key1, 'fake-key1', epoch_length=600,
+                sentinels_per_epoch=2)
+
+        # needs to be eyeballed
+        print key1.generate(do_mse=True)
 
     def test_main():
         """
         Test main - incomplete
         """
+
+        test_mse()
 
         errors = 0
 

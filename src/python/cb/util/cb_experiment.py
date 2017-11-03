@@ -372,8 +372,9 @@ class CurveballExperiment(object):
 
         # TODO: add way to control num_hours.
         print 'Adding sentinels and Bloom filters'
-        print 'Warning: num_hours is ignored by cbkm'
-        key_setup_script = os.path.join(self.prefix, 'scripts', 'cbkm')
+        print 'Warning: num_hours is ignored by cbnoc-keymanager'
+        key_setup_script = os.path.join(self.prefix, 'scripts',
+                'cbnoc-keymanager')
         os.system('sudo %s push' % key_setup_script)
         print "Finished adding sentinels..."
 

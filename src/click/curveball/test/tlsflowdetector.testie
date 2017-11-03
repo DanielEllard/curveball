@@ -48,7 +48,7 @@ tls_flow_detector[2] -> Discard;
 ip_classifier[1] -> c4 :: Counter -> Discard;
 
 %expect stderr
-TLSFlowDetector::string_sentinel: Packet contains valid sentinel.
+SentinelDetector::sentinel_packet: packet contains valid sentinel
 
 %expect OUT1
 c1.count:

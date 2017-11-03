@@ -98,6 +98,23 @@ class ByteQueue(object):
         self.offset += len(prefix)
         return prefix
 
+    def deq2(self, num):
+        """
+        Like deq(), but returns a tuple (data, offset) where data is the
+        data returned by calling deque with the given num (which may be
+        '' if there is no data to dequeue), and offset is the offset into
+        the stream of the first byte of the data.
+
+        A convenience function that can be used, along with a lock around
+        the queue itself, to simplify avoiding TOCTTOU errors if there are
+        multiple threads accessing the queue.
+        """
+
+        offset = self.get_offset()
+        data = self.deq(num)
+
+        return (data, offset)
+
     def peek(self, starting, ending):
         """
         Return a copy of the contents between the given starting and ending
@@ -605,6 +622,34 @@ if __name__ == '__main__':
         print queue1.get_content()
         print queue1
 
+    def test_deq2():
+        """
+        Test of deq2()
+        """
+
+        queue1 = ByteQueue(offset=10, content='abcdefghijklmnopqrstuvwxyz')
+
+        try:
+            test = 1
+            assert(queue1.deq2(0) == ('', 10))
+            test = 2
+            assert(queue1.deq2(2) == ('ab', 10))
+            test = 3
+            assert(queue1.deq2(2) == ('cd', 12))
+            test = 4
+            assert(queue1.deq2(0) == ('', 14))
+            test = 5
+            assert(queue1.deq2(5) == ('efghi', 14))
+            test = 6
+            assert(queue1.deq2(20) == ('jklmnopqrstuvwxyz', 19))
+            test = 7
+            assert(queue1.deq2(20) == ('', 36))
+        except BaseException, _exc:
+            print 'FAILED: deq2 test %d' % test
+            return 1
+
+        return 0
+
     def test_main():
         """
         Tester for ByteQueue
@@ -637,6 +682,9 @@ if __name__ == '__main__':
 
         if test_fast_discard():
             print 'test_fast_discard FAILED'
+
+        if test_deq2():
+            print 'test_deq2 FAILED'
 
         if status:
             print 'FAILED'

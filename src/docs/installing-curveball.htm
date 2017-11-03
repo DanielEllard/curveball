@@ -1,14 +1,13 @@
 <html>
   <head>
-    <title>Installing and setting up BBN Curveball - version 2014.06.18</title>
+    <title>Installing and setting up BBN Curveball - version 2014.12.19</title>
   </head>
   <body>
-    <h1>Installing and setting up BBN Curveball - version 2014.06.18</h1>
+    <h1>Installing and setting up BBN Curveball - version 2014.12.19</h1>
 
     <p>
     This document describes how to install BBN Curveball from a Debian package
-    on Ubuntu 12.04,
-    and then configure and test the installation.
+    on Ubuntu 12.04.
     </p>
 
     <p>
@@ -77,14 +76,15 @@
     </p>
 
     <pre>
+    sudo apt-get update
     sudo dpkg -i CB.DEB
     sudo apt-get -y -f install
     </pre>
 
     <p>
     Note that the <tt>dpkg</tt> command may fail if any dependency is not
-    satisfied.  The second command fetches any missing dependencies
-    and finishes the installation.
+    satisfied.  The last command uses <tt>apt-get</tt> to fetch
+    and install any missing dependencies, and finishes the installation.
     </p>
 
     <p>
@@ -92,25 +92,31 @@
     software on all of the nodes.
     </p>
 
-    <h2> Install click with Curveball extensions on the
-      decoy router node </h2>
+    <h2> [optional] Change the VPN nameservers </h2>
 
     <p>
-    On the decoy router node (in our example, the <tt>dr</tt> node):
+    <i>This step is only necessary if you plan to have the client
+    use VPN mode, and want to use specific DNS servers instead
+    of the Google public DNS servers.</i>
+    </p>
+
+    <p>
+    On each dp node, edit the file
+    <tt>/opt/curveball/scripts/decoyproxy.conf</tt>.
+    Change the line that defines the nameservers to use
+    in VPN mode to use whatever nameservers you prefer.
+    Note that the comma-separated list of nameservers
+    must contain only IPv4 addresses (not hostnames) and
+    must not contain any whitespace.
+    </p>
+
+    <p>
+    The original line looks like:
     </p>
 
     <pre>
-    cd /opt/curveball/click ; make
+    nameservers = 8.8.8.8,8.8.4.4 ; FIXME: won't work on DETER
     </pre>
-
-    <p>
-    <b>Note:</b> this command requires <tt>sudo</tt>.
-    </p>
-
-    <p>
-    If there is more than one decoy router node,
-    then this step must be repeated on each of them.
-    </p>
 
     <h2> [optional] Testbed configuration </h2>
 
@@ -143,11 +149,11 @@
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/install-ca-cert
+    sudo /opt/curveball/scripts/curveball-install-test-ca-cert
     </pre>
 
     <p>
-    The <tt>install-ca-cert</tt> script
+    The <tt>curveball-install-test-ca-cert</tt> script
     installs the BBN Curveball test CA certificate
     (or whatever certificate is specified on its commandline)
     as trusted by the local host.
@@ -211,7 +217,7 @@
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/install-node-cert
+    sudo /opt/curveball/scripts/cb-install-test-node-cert
     </pre>
 
     <p>
@@ -261,11 +267,11 @@
     <p>
     To add a new key,
     on the decoy proxy node,
-    use <tt>/opt/curveball/scripts/cbkm</tt>:
+    use <tt>/opt/curveball/scripts/cbnoc-keymanager</tt>:
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/cbkm add NEWKNAME
+    sudo /opt/curveball/scripts/cbnoc-keymanager add NEWKNAME
     </pre>
 
     <p>
@@ -275,8 +281,13 @@
     </p>
 
     <p>
-    Run <tt>cbkm help</tt> for more information about <tt>cbkm</tt>.
+    Use the <tt>help</tt> directive to get more information
+    about the features of <tt>cbnoc-keymanager</tt>:
     </p>
+
+    <pre>
+    sudo /opt/curveball/scripts/cbnoc-keymanager help
+    </pre>
 
     <h4> [optional] Distributing keys to users </h4>
 
@@ -302,41 +313,42 @@
 
     <p>
     Keys are selected by <i>kname</i>.
-    The <tt>client-key-config</tt> script lists all the <i>knames</i> in the
+    The <tt>curveball-key-config</tt> script lists all the <i>knames</i> in the
     local master key file if invoked with the <tt>-a</tt> option:
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/client-key-config -a
+    sudo /opt/curveball/scripts/curveball-key-config -a
     </pre>
 
     <p>
     The default master file
     (provided in this release for testing purposes)
-    has keys with names <tt>cbtest0</tt> through <tt>cbtest9</tt>.
+    has keys with names <tt>cbtest0</tt> through <tt>cbtest4</tt>.
     (There are also keys with names
-    <tt>cbtest10</tt> through <tt>cbtest99</tt>,
+    <tt>cbtest5</tt> through <tt>cbtest99</tt>,
     but by default these are commented out.)
     To configure the client to use kname <tt>cbtest0</tt>:
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/client-key-config cbtest0
+    sudo /opt/curveball/scripts/curveball-key-config -c cbtest0
     </pre>
 
     <p>
-    The <tt>client-key-config</tt> script may be rerun at any time to change
-    the set of keys selected.  If the same key is selected again, there
+    The <tt>curveball-key-config</tt> script may be rerun at any time to change
+    keys, add additional keys, or remove keys.
+    Note that if the same key is added more than once, there
     is no change to the state.
     </p>
 
     <p>
-    The <tt>client-key-config</tt> script can also print the current
+    The <tt>curveball-key-config</tt> script can also print the current
     state of the key:
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/client-key-config -p
+    sudo /opt/curveball/scripts/curveball-key-config -p
     </pre>
 
     <p>
@@ -356,7 +368,7 @@
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/client-key-config -c cbtest1
+    sudo /opt/curveball/scripts/curveball-key-config -c cbtest1
     </pre>
 
     <h2> Acknowledgements </h2>

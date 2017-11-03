@@ -49,48 +49,6 @@ TLSFlowDetector::cast(const char *name)
 }
 
 void
-TLSFlowDetector::push(int port, Packet *p)
-{
-    assert(p->has_network_header());
-    assert(p->ip_header()->ip_p == IP_PROTO_TCP);
-
-    // Non-first packet fragments are simply forwarded.
-    if (IP_ISFRAG(p->ip_header()) && !IP_FIRSTFRAG(p->ip_header())) {
-        output(1).push(p);
-        return;
-    }
-
-    assert(p->has_transport_header());
-
-    // server-side communication
-    if (port == 1) {
-        process_server_packet(p);
-        return;
-    }
-
-    // Non-TLS packets are simply forwarded.
-    if (ntohs(p->tcp_header()->th_dport) != _port) {
-        output(1).push(p);
-        return;
-    }
-
-    // client-side communication
-    if (syn_packet(p)) {
-        _flow_table.add_flow(p);
-        output(1).push(p);
-
-    } else {
-        process_non_syn_packet(p);
-    }
-}
-
-bool
-TLSFlowDetector::syn_packet(Packet *p)
-{
-    return (p->tcp_header()->th_flags & TH_SYN);
-}
-
-void
 TLSFlowDetector::process_non_syn_packet(Packet *p)
 {
     IPFlowID flow_key = IPFlowID(p);
@@ -120,25 +78,6 @@ TLSFlowDetector::process_non_syn_packet(Packet *p)
         entry->set_active();
         output(0).push(p);
     }
-}
-
-void
-TLSFlowDetector::process_client_ack(Packet *p, FlowEntry *entry)
-{
-    const uint8_t *data = p->transport_header() +
-                          (p->tcp_header()->th_off << 2);
-    int nbytes = p->end_data() - data;
-
-    if ((p->tcp_header()->th_flags & TH_ACK) && (nbytes == 0)) {
-        entry->set_state(FLOW_STATE_SENTINEL);
-
-    } else {
-        click_chatter("TLSFLowDetector::process_client_ack: "
-                      "Invalid client ACK in TCP handshake.");
-        remove_flow(IPFlowID(p));
-    }
-
-    output(1).push(p);
 }
 
 void
@@ -310,82 +249,6 @@ TLSFlowDetector::process_tls_server_hello(Packet *p, FlowEntry *entry)
         click_chatter("TLSFlowDetector::process_tls_server_hello: "
                       "DR2DPEncoder not configured");
     }
-}
-
-#ifdef NEW_SENTINEL_TEST
-static char*
-curveball_asciify(const char* buf, const int len) 
-{
-    static char dest[4096];
-    int i;
-    int outcount = 0;
-    
-    /* call with NULL prefix to just dump the hex bits, with no
-     * decorations
-     */
-    for(i = 0; i < len; i++) {
-        outcount += snprintf(&dest[outcount],
-                             sizeof(dest) - outcount,
-                             "%02x",
-                             buf[i] & 0xff);
-    }
-    return &dest[0];
-}
-#endif // NEW_SENTINEL_TEST
-
-bool
-TLSFlowDetector::sentinel_packet(
-    const IPFlowID &flow_key, const char *buf, int len)
-{
-    if (seen_flow(flow_key, buf, len)) {
-        click_chatter("TLSFlowDetector::sentinel_packet: ",
-                      "ignoring already seen flow");
-        return false;
-    }
-
-    // Check string sentinel first, if one is configured.
-    if (_sentinel.length() > 0 && string_sentinel(buf, len)) {
-            return true;
-    }
-
-    assert(len >= _sentinel_length);
-
-#ifdef NEW_SENTINEL_TEST
-    {
-        char buffer[4096];
-        snprintf(buffer, sizeof(buffer),
-                 "TLSFlowDetector::sentinel_packet: testing sentinel [%s]",
-                 curveball_asciify((char*) buf, len));
-        click_chatter(buffer);
-    }
-#endif // NEW_SENTINEL_TEST
-
-    if ((_sentinels == NULL) ||
-        (!_sentinels->member(buf, _sentinel_length))) {
-        // packet does not contain valid Curveball sentinel
-        return false;
-    }
-
-    click_chatter("TLSFlowDetector::sentinel_packet: "
-                  "Packet contains valid sentinel.");
-    return true;
-}
-
-bool
-TLSFlowDetector::string_sentinel(const char *buf, int len)
-{
-    if (len < _sentinel.length()) {
-        return false;
-    }
-
-    if (String(buf, _sentinel.length()) != _sentinel) {
-        // packet does not contain valid Curveball sentinel
-        return false;
-    }
-
-    click_chatter("TLSFlowDetector::string_sentinel: "
-                  "Packet contains valid sentinel.");
-    return true;
 }
 
 

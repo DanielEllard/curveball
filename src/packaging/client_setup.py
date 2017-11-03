@@ -121,8 +121,13 @@ try:
             description='Curveball Client',
             options = {"build_exe": build_exe_options},
             executables = [
-                Executable("../scripts/client.py", base=base),
-                Executable("../scripts/client-key-config", base=base)])
+                Executable("../python/cb/gui/client/client_gui.py",
+                           base=base,
+                           shortcutName="BBN Curveball",
+                           shortcutDir="DesktopFolder",
+                           icon="../python/cb/gui/client/res/app_icon.ico"),
+                Executable("../scripts/curveball-client", base=base),
+                Executable("../scripts/curveball-key-config", base=base)])
 except BaseException, exc:
     print str(exc)
     sys.exit(1)

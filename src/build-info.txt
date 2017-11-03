@@ -1,6 +1,6 @@
 builduser: dellard
 builddir: /home/dellard/curveball/src
-hostname: octo
-buildtime: 20140618-1742-UTC
+hostname: jun
+buildtime: 20141219-1947-UTC
 git-branch: master
-git-commit: 20ee893499fdde8215c965252829f570824f3e84
+git-commit: b230a61c3b5a22897e98893562e9084bbde705b2

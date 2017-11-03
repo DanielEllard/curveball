@@ -91,4 +91,5 @@ build-dev: .NSS-DBG .CLIENTGUI
 build-msi: .NSS-OPT .CLIENTGUI
 	rm -rf packaging/build
 	cd packaging ; $(PYTHONEXE) client_setup.py bdist_msi
+	mv packaging/dist/CurveballClient-*-win32.msi .
 

@@ -443,7 +443,6 @@ class FlowMonitor(object):
         self.tunnel_type = const.UNKNOWN_TUNNEL
         self.isn = isn
         self.dr2dp = None
-        self.uni_ct_dp = None
 
         self.flow_state = None
         self.last_seen = None
@@ -468,8 +467,9 @@ class FlowMonitor(object):
         self.ip_id_used = False
 
         self.log = logging.getLogger('cb.tcphijack.flow_mon')
-        if FlowMonitor.sentinels is None:
-            log_debug('ERROR: sentinels not loaded')
+        if (FlowMonitor.sentinels is None or 
+            FlowMonitor.bittorrent_sentinels is None):
+            print 'ERROR: sentinels not loaded, bailing out'
 
             # FIXME: complain if the sentinel table is empty after
             # being initialized, e.g.,
@@ -480,7 +480,7 @@ class FlowMonitor(object):
             #
             # Note that the SentinelManager runs asynchronously, which
             # may complicate the check on the sentinels
-
+            
     def update_flow(self, pkt):
         """
         Keep track of how long since this flow has been active
@@ -504,13 +504,11 @@ class FlowMonitor(object):
                                 self.syn_options,
                                 isn)
 
-
     def handshake(self, pkt):
         """
         Subclasses should implement this
         """
         raise Exception("Unimplemented function")
-
 
     def traffic_from_client(self, pkt):
         """
@@ -618,6 +616,75 @@ class FlowMonitor(object):
             self.handshake(pkt)
             return
 
+    def handle_icmp(self, pkt, reverse = False):
+        """
+        Handle ICMP packet on flow.
+        """
+        DEBUG and log_debug("FM: handle ICMP packet")
+
+        # decoy->client ICMP (client->decoy embedded IP)
+        #    handshake: pass through
+        #    hijacked:  pass through (adversary sending them? special cases?)
+        if reverse == False:
+            self.cm.send_to_dr_endpoint(str(pkt))
+            DEBUG and log_debug("FM: pass through decoy->client icmp")
+            return
+
+        # client->decoy ICMP (decoy->client embedded IP)
+
+        # unidirectional; pass through
+        if self.tunnel_type == const.CREATE_HTTP_UNI_TUNNEL or \
+           self.tunnel_type == const.HTTP_UNI_TUNNEL:
+            self.cm.send_to_dr_endpoint(str(pkt))
+            DEBUG and log_debug("FM: pass through unidirectional icmp")
+            return
+
+        # incomplete hijack of flow; pass through
+        if self.hijack == None:
+            self.cm.send_to_dr_endpoint(str(pkt))
+            DEBUG and log_debug("FM: pass through icmp on unhijacked flow")
+            return
+
+        # invalid icmp type; pass through
+        type = pkt.get_icmp_type()
+        if type != Packet.ICMP_TYPE_DEST_UNREACH and 	\
+           type != Packet.ICMP_TYPE_REDIRECT and	\
+           type != Packet.ICMP_TYPE_TIME_EXCEED and	\
+           type != Packet.ICMP_TYPE_PARAM_PROB:
+            self.cm.send_to_dr_endpoint(str(pkt))
+            DEBUG and log_debug("FM: pass through icmp with invalid type")
+            return
+
+        # embedded ip packet not tcp; pass through
+        if pkt.is_embed_tcp() == False:
+            self.cm.send_to_dr_endpoint(str(pkt))
+            DEBUG and log_debug("FM: pass through icmp with no embedded tcp")
+            return
+
+        # icmp destination fails to match decoy; pass through
+        (src, sport, dst, dport) = self.flow_tuple
+        if dst != pkt.get_dst():
+            self.cm.send_to_dr_endpoint(str(pkt))
+            DEBUG and log_debug("FM: pass through icmp with invalid dst")
+            return
+
+        # bidirectional (http, tls)
+        #    - rewrite ip header of the icmp packet to change the src/dst
+        #      addresses to the local terminal addresses
+        #    - rewrite icmp body so that all references to decoy are replaced
+        #      with the local terminal address
+        #    - write the updated icmp packet to the hijacked tunnel
+        assert(self.hijack)
+
+        (hsrc, hsport, hdst, hdport) = self.hijack.hijack_tuple
+        pkt.set_src(hsrc)
+        pkt.set_dst(hdst)
+        pkt.set_icmp_src(hdst, hdport)
+        pkt.set_icmp_dst(hsrc, hsport)
+
+        TCPHijack.hijack_manager.tun.write(str(pkt))
+
+        return
 
     # The HTTP and TLS flow monitors call dr2dp.send_to_dr() which is
     # equivalent to calling self.cm.send_to_dr_endpoint().
@@ -688,7 +755,7 @@ class FlowMonitor(object):
 
 
 
-def get_http_rec(tuple, reassembler, recv_buf):
+def get_http_req(tuple, reassembler, recv_buf):
     """
     reads an HTTP request from the recv_buf (after extending the
     recv_buf from the reassembler if there is anything pending)
@@ -774,7 +841,7 @@ def check_for_sentinel( msg ):
     else:
         return -1
 
-def get_tunnel_type( msg, http_bi_tunnel_tag, http_uni_tunnel_tag ):
+def get_http_tunnel_type(msg, http_bi_tunnel_tag, http_uni_tunnel_tag):
 
     cookie = http_util.get_header('Cookie: ', msg)
 
@@ -795,13 +862,19 @@ def get_tunnel_type( msg, http_bi_tunnel_tag, http_uni_tunnel_tag ):
 
     return const.UNKNOWN_TUNNEL
 
-class UnknownFlowMonitor(FlowMonitor):
+class HTTPUnknownFlowMonitor(FlowMonitor):
 
     def __init__(self, tupl, cm, syn_options, isn, dr2dp):
         FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
 
         self.recv_buf = ''
         self.dr2dp = dr2dp
+        self.host_ip = str(socket.inet_ntoa(self.flow_tuple[2]))
+        self.host_name = self.host_ip
+        self.nonce_client = None
+        self.full_sentinel_hex = None
+        self.sentinel = None
+        self.initial_req = None
 
     def traffic_to_client(self, pkt):
 
@@ -811,6 +884,9 @@ class UnknownFlowMonitor(FlowMonitor):
         """
         Process packets coming from the client
         """
+
+        self.dr2dp.send_to_dr(str(pkt.clone()))
+
         # If we see a RST or FIN, abandon the hijack
         # and send the packet to the DH.
         #
@@ -826,7 +902,7 @@ class UnknownFlowMonitor(FlowMonitor):
         while True:
             # Check whether pkt contains HTTP Request
             #
-            http_msg, self.recv_buf = get_http_rec(
+            http_msg, self.recv_buf = get_http_req(
                     tuple, self.reassembler_forward, self.recv_buf)
             if http_msg is None:
                 return
@@ -845,34 +921,44 @@ class UnknownFlowMonitor(FlowMonitor):
 
     def determine_tunnel_type(self, http_msg, handshake_ID):
 
-        sentinel = handshake_ID[ : const.SENTINEL_HEX_LEN]
-        full_sentinel_hex = get_full_sentinel_hex( sentinel )
+        self.initial_req = http_msg
+        self.sentinel = handshake_ID[ : const.SENTINEL_HEX_LEN]
+        self.full_sentinel_hex = get_full_sentinel_hex(self.sentinel)
 
         try:
             # Pull info out of Cookie
             #
             offset = const.SENTINEL_HEX_LEN + const.NONCE_CLIENT_HEX_LEN
-            nonce_client = handshake_ID[ const.SENTINEL_HEX_LEN : offset ]
+            self.nonce_client = handshake_ID[ const.SENTINEL_HEX_LEN : offset ]
 
             # Create BI http tunnel_type_tag
             #
             tunnel_type_hash = hmac.new(
-                    const.HTTP_BI_TUNNEL + nonce_client,
-                    full_sentinel_hex[const.SENTINEL_HEX_LEN:],
+                    const.HTTP_BI_TUNNEL + self.nonce_client,
+                    self.full_sentinel_hex[const.SENTINEL_HEX_LEN:],
                     hashlib.sha256 ).digest()
             bi_tunnel_tag = tunnel_type_hash.encode("hex")
 
             # Create UNI http tunnel_type_hash
             #
             tunnel_type_hash = hmac.new(
-                    const.HTTP_UNI_TUNNEL + nonce_client,
-                    full_sentinel_hex[const.SENTINEL_HEX_LEN:],
+                    const.HTTP_UNI_TUNNEL + self.nonce_client,
+                    self.full_sentinel_hex[const.SENTINEL_HEX_LEN:],
                     hashlib.sha256 ).digest()
             uni_tunnel_tag = tunnel_type_hash.encode("hex")
 
+            # Default self.host is the decoy ip address, set in init
+            # Here, we check whether the host name in the packet can be pulled
+            # off. If so, we use this host name instead since it is typically
+            # the name, not the ip address
+            #
+            host = http_util.get_header_value("host", http_msg)
+            if host != '-1':
+                self.host_name = host
+
             # Try to determine tunnel type
             #
-            self.tunnel_type = get_tunnel_type(
+            self.tunnel_type = get_http_tunnel_type(
                     http_msg, bi_tunnel_tag, uni_tunnel_tag )
 
             if self.tunnel_type == const.UNKNOWN_TUNNEL:
@@ -893,6 +979,7 @@ class HTTPBiFlowMonitor(FlowMonitor):
         cm            = old_flow_mon.cm
         syn_options   = old_flow_mon.syn_options
         isn           = old_flow_mon.isn
+        self.host_name = old_flow_mon.host_name
         FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
 
         self.dr2dp = old_flow_mon.dr2dp
@@ -945,7 +1032,7 @@ class HTTPBiFlowMonitor(FlowMonitor):
         # Check whether pkt contains HTTP Request
         #
         tuple = pkt.get_tuple()
-        [msg, self.recv_buf] = get_http_rec(
+        [msg, self.recv_buf] = get_http_req(
                 tuple, self.reassembler_forward, self.recv_buf )
 
         if msg is None:
@@ -1243,7 +1330,7 @@ class HTTPBiFlowMonitor(FlowMonitor):
             self.cm.remove_flow(self.flow_tuple)
             self.dr2dp.send_to_dr(str(pkt))
 
-    def get_premaster(self, rec, pkt):
+    def get_premaster(self, msg, pkt):
         """
         State 4:  Get premaster
 
@@ -1251,9 +1338,17 @@ class HTTPBiFlowMonitor(FlowMonitor):
             State 4 is actually sent back
         """
 
+        self.content_type = http_util.get_header_value("content-type", str(msg))
+        if self.content_type == '-1':
+            self.content_type = ''
+
+        self.server_name = http_util.get_header_value("server", str(msg))
+        if self.server_name == '-1':
+            self.server_name = ''
+
         # Pull out encrypted message from header
         #
-        url = http_util.get_request_uri(rec)
+        url = http_util.get_request_uri(msg)
         if url == None:
             self.dr2dp.send_to_dr(str(pkt))
             self.cm.remove_flow(self.flow_tuple)
@@ -1396,52 +1491,51 @@ class HTTPUniFlowMonitor(FlowMonitor):
 
     def __init__(self, old_flow_mon, dr2dp, uni_ct_dp):
 
-        tupl          = old_flow_mon.flow_tuple
-        cm            = old_flow_mon.cm
-        syn_options   = old_flow_mon.syn_options
-        isn           = old_flow_mon.isn
+        tupl = old_flow_mon.flow_tuple
+        cm = old_flow_mon.cm
+        syn_options = old_flow_mon.syn_options
+        isn = old_flow_mon.isn
+        self.host_name = old_flow_mon.host_name
+        self.sentinel = old_flow_mon.sentinel
+        self.full_sentinel_hex = old_flow_mon.full_sentinel_hex
+        self.nonce_client = old_flow_mon.nonce_client.decode("hex")
+        self.initial_req = old_flow_mon.initial_req
         FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
 
         self.dr2dp = old_flow_mon.dr2dp
         self.reassembler_forward = old_flow_mon.reassembler_forward
         self.recv_buf = old_flow_mon.recv_buf
-
         self.re_http_resp = re.compile('HTTP/1.1 * 200')
-
         self.handshake_ID = None
-        self.nonce_client = None
         self.nonce_dp = None
         self.premaster = None
         self.seqno = None
-        self.isFirst = True
-
+        self.is_first = True
         self.mole = None
-        self.host = str( socket.inet_ntoa( self.flow_tuple[2] ) )
-        self.http_mole_encoder = None # initialized later, during handshake.
+        self.host_ip = str(socket.inet_ntoa(self.flow_tuple[2]))
+        self.http_mole_encoder = HttpMoleCryptoEncoder(
+                self.host_name, self.full_sentinel_hex)
         self.uni_ct_dp = uni_ct_dp
         try:
             self.ctdp_src_sock = socket.socket()
             self.ctdp_src_sock.connect(('localhost', const.HTTP_UNI_CT_DP_PORT))
-            self.ctdp_src_sock.setblocking( False )
+            self.ctdp_src_sock.setblocking(False)
         except socket.error:
             self.ctdp_src_sock = None
 
-
-        self.rc4_handshake_c2d = None
-        self.rc4_handshake_d2c = None
-        self.session_key = None
+        self.session_key = self.full_sentinel_hex[const.SENTINEL_HEX_LEN : ]
+        self.rc4_handshake_c2d = RC4.RC4(self.session_key)
+        self.rc4_handshake_d2c = RC4.RC4(self.session_key)
 
         # We don't use the host or session_key parameters because the
         # only thing we use this encoder for is its digest method, which
         # does not depend on anything except the text.
         #
         self.encoder = HttpMoleCryptoEncoder('fakehost', 'fakekey')
-
         self.decoupled_ID = None
         self.extra_d2c_key = None
         self.pubkey_dp = security_util.obtain_pubkey_dp(self)
         self.privkey_dp = privkey_util.obtain_privkey_dp(self)
-
         self.tunnel_type = const.HTTP_UNI_TUNNEL
 
     def handshake(self, pkt):
@@ -1468,130 +1562,72 @@ class HTTPUniFlowMonitor(FlowMonitor):
             self.cm.remove_flow(self.flow_tuple)
             return
 
-        clone_pkt = pkt.clone()
-        self.reassembler_forward.add_pkt( clone_pkt )
-
-        # Check whether pkt contains HTTP Request
-        #
-        tuple = pkt.get_tuple()
-
-        [http_msg, self.recv_buf] = get_http_rec(
-                tuple, self.reassembler_forward, self.recv_buf )
-
-        if http_msg is None and (self.state == const_dp.STATE_2_UNI):
-            self.dr2dp.send_to_dr( str(pkt) )
+        if len(pkt.get_payload()) <= 0:
+            self.dr2dp.send_to_dr(str(pkt))
             return
 
-        if self.state == const_dp.STATE_2_UNI:
-            self.handshake_init( pkt, http_msg )
+        self.reassembler_forward.add_pkt(pkt.clone())
 
-        elif self.state == const_dp.STATE_4_UNI:
-            self.handshake_hijacked( pkt, http_msg, tuple )
+        # Create and/or use Mole
+        #
+        pkt_clone = pkt.clone()
+        pkt_seq_no = pkt_clone.get_seq()
+        if self.mole == None:
+            self.create_mole_tunnel(pkt_seq_no)
+        self.use_mole_tunnel(pkt_seq_no, pkt_clone)
 
-        else:
-            self.dr2dp.send_to_dr( str(pkt) )
-            self.cm.remove_flow( self.flow_tuple )
+        # Process all queued up HTTP requests
+        #
+        tuple = pkt.get_tuple()
+        while True:
 
-    def handshake_init(self, pkt, http_msg):
+            [http_msg, self.recv_buf] = get_http_req(
+                tuple, self.reassembler_forward, self.recv_buf)
+
+            if http_msg == None:
+                return
+
+            if self.state == const_dp.STATE_2_UNI:
+                self.handshake_init(http_msg)
+
+            elif self.state == const_dp.STATE_4_UNI:
+                self.handshake_hijacked(http_msg)
+
+    def create_mole_tunnel(self, tcp_seq_no):
         """
-        State 2:  Init
+        We create the mole tunnel immediately because we need to start
+        rewriting pkts immediately (to handle tcp segmentation) even
+        before the handshake has completed. This does introduce some
+        vulnerabilities.
         """
-        self.handshake_ID = check_for_sentinel( http_msg )
-        if self.handshake_ID != -1:
 
-            offset = const.SENTINEL_HEX_LEN + const.NONCE_CLIENT_HEX_LEN
-            self.sentinel     = self.handshake_ID[ : const.SENTINEL_HEX_LEN]
-            self.nonce_client = self.handshake_ID[ const.SENTINEL_HEX_LEN : offset].decode("hex")
-            full_sentinel     = get_full_sentinel_hex(self.sentinel)
+        # Create mole and insert welcome into mole queue. Because
+        # the mole creates its own requests of the things in its
+        # queue, we want to only insert the welcome string, not
+        # a full request
+        #
+        self.mole = MoleTunnelDp(
+                self.http_mole_encoder, tcp_seq_no, const.HTTPU_CURVEBALLHELLO)
 
-            self.http_mole_encoder = HttpMoleCryptoEncoder(
-                    self.host, full_sentinel)
+        self.uni_ct_dp.setMole(self.mole)
 
-            self.session_key = full_sentinel[ const.SENTINEL_HEX_LEN : ]
-            self.rc4_handshake_c2d = RC4.RC4( self.session_key )
-            self.rc4_handshake_d2c = RC4.RC4( self.session_key )
-
-            # Replace URI with WelcomeToCurveball (const.HTTPU_CURVEBALLHELLO)
-            #
-            tcp_payload = pkt.get_payload()
-            try:
-                uri_start      = tcp_payload.index( 'GET /' )
-                uri_end        = tcp_payload.index( ' HTTP/1.1' )
-                before_uri     = tcp_payload[ uri_start : uri_start + len('GET /') ]
-                after_uri      = tcp_payload[ uri_end : ]
-                cipher_uri     = tcp_payload[ uri_start + len('GET /') : uri_end ]
-                cipher_uri     = cipher_uri.decode("hex")
-                auth_plain_uri = self.rc4_handshake_c2d.update( cipher_uri )
-                hash_offset    = const.HTTPU_HEX_HASHLEN
-                uri_offset     = hash_offset + len(const.HTTPU_HASHSEP)
-                auth_uri       = auth_plain_uri[:hash_offset]
-                plain_uri      = auth_plain_uri[uri_offset:]
-
-                test_uri = '%s%s%s' % (
-                        self.encoder.digest(plain_uri), const.HTTPU_HASHSEP, plain_uri)
-
-                if test_uri != auth_plain_uri:
-                    print "test and auth uris do ot match"
-                    self.dr2dp.send_to_dr( str(pkt) )
-                    self.cm.remove_flow(self.flow_tuple)
-                    return
-
-                if plain_uri != const.HTTPU_CLIENTHELLO:
-                    print "plain uri is not a client hello"
-                    self.dr2dp.send_to_dr( str(pkt) )
-                    self.cm.remove_flow(self.flow_tuple)
-                    return
-
-                new_uri = const.HTTPU_CURVEBALLHELLO
-                auth_new_uri = '%s%s%s' % (
-                        self.encoder.digest(new_uri), const.HTTPU_HASHSEP, new_uri)
-                cipher_new_uri = self.rc4_handshake_d2c.update( auth_new_uri )
-                new_request_line = (
-                        before_uri + cipher_new_uri.encode("hex") + after_uri )
-                pkt.set_same_size_payload(
-                        new_request_line, uri_start, len(new_request_line) )
-                pkt.update_cksum()
-
-                # Forward on modified packet
-                #
-                self.dr2dp.send_to_dr( str(pkt) )
-                self.state = const_dp.STATE_4_UNI
-
-            except ValueError:
-                self.dr2dp.send_to_dr( str(pkt) )
-                self.cm.remove_flow(self.flow_tuple)
+        # Set up buffering for mole tunnel
+        #
+        self.partition_size = 0x200000
+        self.highest_partition = 0xffffffff / self.partition_size
+        self.max_partition = tcp_seq_no / self.partition_size
+        if self.max_partition == 0:
+            self.min_partition = self.highest_partition
         else:
-            self.log.debug("No sentinel")
-            self.dr2dp.send_to_dr(str(pkt))
-            self.cm.remove_flow(self.flow_tuple)
+            self.min_partition = self.max_partition - 1
+        self.gen_wrap = 0
 
-    def handshake_hijacked(self, pkt, http_msg, tuple):
+    def use_mole_tunnel(self, seq_no, pkt):
         """
         State 4:  Ready
 
         Extract covert data from request, forward on modified pkt
         """
-        len_payload = len(pkt.get_payload())
-        seq_no = pkt.get_seq()
-        if len_payload <= 0:
-            self.dr2dp.send_to_dr( str(pkt) )
-            return
-
-        # Create mole tunnel
-        #
-        if self.isFirst == True:
-            self.mole = MoleTunnelDp( self.http_mole_encoder, seq_no )
-            self.uni_ct_dp.setMole( self.mole )
-            self.isFirst = False
-
-            self.partition_size = 0x200000
-            self.highest_partition = 0xffffffff / self.partition_size
-            self.max_partition = seq_no / self.partition_size
-            if self.max_partition == 0:
-                self.min_partition = self.highest_partition
-            else:
-                self.min_partition = self.max_partition - 1
-            self.gen_wrap = 0
 
         # Use a heuristic-based state machine to determine the
         # "unwrapped" sequence number, based on the original sequence number.
@@ -1650,9 +1686,9 @@ class HTTPUniFlowMonitor(FlowMonitor):
 
         # Obtain data to put in pkt to forward to DH
         #
+        len_payload = len(pkt.get_payload())
         self.mole.extend(eff_seq_no + len_payload)
         new_payload = self.mole.copy(eff_seq_no, len_payload)
-
 
         # discard 2MB from the queue whenever the
         # queue grows to be more than 4MB.
@@ -1673,36 +1709,76 @@ class HTTPUniFlowMonitor(FlowMonitor):
 
         # Forward on modified pkt to DH
         #
-        pkt.set_same_size_payload( new_payload, 0, len(new_payload) )
+        pkt.set_same_size_payload(new_payload, 0, len(new_payload))
         pkt.update_cksum()
-        self.dr2dp.send_to_dr( str(pkt) )
+        self.dr2dp.send_to_dr(str(pkt))
 
+    def handshake_init(self, http_msg):
+        """
+        State 2:  Init
+        """
 
-
-        # Forward on http msg to CT_DP
+        # Process payload
         #
-        sock_closed = False
+        self.handshake_ID = check_for_sentinel(http_msg)
+        if self.handshake_ID == -1:
+            self.log.debug("No sentinel")
+            self.cm.remove_flow(self.flow_tuple)
 
-        while http_msg != None:
-            try:
-                self.ctdp_src_sock.send(http_msg)
-            except socket.error:
-                sock_closed = True
+        # We already computed this info from the first pkt. Now, we
+        # are just pulling things off and checking that nothing modified.
+        #
+        offset = const.SENTINEL_HEX_LEN + const.NONCE_CLIENT_HEX_LEN
+        sentinel = self.handshake_ID[ : const.SENTINEL_HEX_LEN]
+        nonce_client = self.handshake_ID[const.SENTINEL_HEX_LEN : offset].decode("hex")
+        full_sentinel_hex = get_full_sentinel_hex(self.sentinel)
 
-            if sock_closed == True:
-                try:
-                    self.ctdp_src_sock = socket.socket()
-                    self.ctdp_src_sock.connect(('localhost', 57777))
-                    self.ctdp_src_sock.setblocking( False )
-                    self.ctdp_src_sock.send(http_msg)
-                    sock_closed = False
-                except socket.error:
-                    print "Error: socket closed"
+        if (sentinel != self.sentinel
+            or nonce_client != self.nonce_client
+            or full_sentinel_hex != self.full_sentinel_hex):
+            print "initial info does not match"
+            self.cm.remove_flow(self.flow_tuple)
+            return
 
-            [http_msg, self.recv_buf] = get_http_rec(
-                    tuple, self.reassembler_forward, self.recv_buf )
+        try:
+            uri_start = http_msg.index('GET /')
+            uri_end = http_msg.index(' HTTP/1.1')
+            cipher_uri = http_msg[uri_start + len('GET /') : uri_end]
+            cipher_uri = cipher_uri.decode("hex")
+            auth_plain_uri = self.rc4_handshake_c2d.update(cipher_uri)
+            hash_offset = const.HTTPU_HEX_HASHLEN
+            uri_offset = hash_offset + len(const.HTTPU_HASHSEP)
+            plain_uri = auth_plain_uri[uri_offset:]
+            test_uri = '%s%s%s' % (
+                        self.encoder.digest(plain_uri), const.HTTPU_HASHSEP, plain_uri)
 
+            if test_uri != auth_plain_uri:
+                print "test and auth uris do not match"
+                self.cm.remove_flow(self.flow_tuple)
+                return
 
+            if plain_uri != const.HTTPU_CLIENTHELLO:
+                print "plain uri is not a client hello"
+                self.cm.remove_flow(self.flow_tuple)
+                return
+
+            self.state = const_dp.STATE_4_UNI
+
+        except ValueError:
+            self.cm.remove_flow(self.flow_tuple)
+
+    def handshake_hijacked(self, http_msg):
+        """
+        State 4:  Ready
+
+        Forward http_msg to CT_DP
+        """
+
+        try:
+            self.ctdp_src_sock.send(http_msg)
+        except socket.error:
+            print "Error: socket closed"
+            self.cm.remove_flow(self.flow_tuple)
 
 def make_padder(rsa_modulus_len):
 
@@ -1768,14 +1844,14 @@ def getHMAC(app_data, mac_key, rec_no):
     hm.update(app_data)
     hmac_data = hm.digest()
     return hmac_data            
-    
+
 def checkHMAC(plain_text, seqno, hmac_key):
         
-    pad_len = ord(plain_text[-1:])
+    pad_len = ord(plain_text[- 1 : ])
     hmac_len = 20
-    pad_data = plain_text[-(pad_len + 1):-1]
-    hmac_data = plain_text[-(1 + pad_len + hmac_len) :-(1 + pad_len)]
-    app_data = plain_text[:-(1 + pad_len + hmac_len)]
+    pad_data = plain_text[- (pad_len + 1) : - 1]
+    hmac_data = plain_text[- (1 + pad_len + hmac_len) :- (1 + pad_len)]
+    app_data = plain_text[ : - (1 + pad_len + hmac_len)]
        
     if len(pad_data) != pad_len:
         return False
@@ -2133,6 +2209,251 @@ class TLSCryptoData(object):
 
         return self
 
+def tlsRecordRecv(cm, tuple, reassembler, header_len, ssl_version):
+    """
+    Much of this code is modeled on tlslite's
+    TLSRecordLayer._getNextRecord method
+    """
+        
+    # Not enough data available to read a header yet
+    #
+    if reassembler.len() < header_len:
+        return (None, None)
+
+    # I don't think the tlslite documentation makes it clear that
+    # the argument to tlsTc.Parser() needs to be a bytearray (inside
+    # the tlslite code it treats elements of the array as
+    # integers, not chars).
+    #
+    bytes = bytearray(reassembler.peek(header_len))
+
+    try:
+        if ssl_version == (3, 0):
+            rec = tlsTm.RecordHeader2().parse(tlsTc.Parser(bytes))
+        elif ssl_version in ((3,1), (3,2)):
+            rec = tlsTm.RecordHeader3().parse(tlsTc.Parser(bytes))
+        else:
+            print("wrong ssl_version (%s)" % str(ssl_version))
+            cm.remove_flow(tuple)
+            return (None, None)
+
+    except SyntaxError:
+        print("Malformed TLS record")
+        cm.remove_flow(tuple)
+        return (None, None)
+
+    # Protocol defines maximum length to be 2^14 (16384)
+    # tlslite.TLSRecordLayer._getNextRecord() uses 18432 here, for
+    # some reason
+    #
+    if rec.length > 18432:
+        print("SSL Record overflow")
+        cm.remove_flow(tuple)
+        return (None, None)
+
+    # Don't have the full record yet
+    #
+    if rec.length + header_len > reassembler.len():
+        return (None, None)
+
+    # Header we've already peeked at
+    #
+    header = reassembler.recv(header_len, commit=True, raw=False)
+
+    # Another view into the data, suitable for tlslite parse routines
+    #
+    rec.tcParseStream = tlsTc.Parser(
+            bytearray(reassembler.recv(rec.length, commit=True, raw=True)))
+
+    return (rec, header)
+
+def sslIdentify(reassembler):
+    """
+    Figure out if correspondent is speaking SSL3 or SSL2, and
+    corresponding header sizes.
+    """
+
+    if reassembler.len() < 1:
+        return (None, None)
+    else:
+        # slavishly copied from
+        # Tlslite.TLSRecordLayer._getNextRecord() --- I don't see
+        # where the val == 128/2 byte header comes from.  Maybe we
+        # don't even want to talk to hosts that use such records.
+        #
+        bytes = reassembler.peek(1)
+        val = struct.unpack('B', bytes)[0]
+        # XXXX FIXME --- this might be (3,0)
+        # fix is to convert over to using tlslite here
+        if val in tlsConst.ContentType.all:
+            return ((3, 1), 5)
+
+        elif val == 128:
+            return ((2, 0), 2)
+        else:
+            print("Unknown SSL version: %d" % int(val))
+            return (None, None)
+
+def updateCBC(r, dir, crypto):
+    """
+    When we see encrypted records, keep track of the last block
+    for use in future decryption of CBC.
+    """
+    subtype = r.tcParseStream.bytes[0]
+    if(r.type ==  tlsConst.ContentType.application_data
+        or (r.type ==  tlsConst.ContentType.handshake
+            and tlsHandshakeFinished(subtype))):
+
+        # This is an encrypted record, remember last cipher block
+        if dir == "C->S":
+            crypto.clientIVBlock = r.tcParseStream.bytes[-crypto.ivLength:]
+        else:
+            crypto.serverIVBlock = r.tcParseStream.bytes[-crypto.ivLength:]
+
+class TLSUnknownFlowMonitor(FlowMonitor):
+
+    def __init__(self, tupl, cm, syn_options, isn, dr2dp):
+        FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
+
+        self.recv_buf = ''
+        self.dr2dp = dr2dp
+        self.crypto = TLSCryptoData()
+
+    def traffic_to_client(self, pkt):
+
+        # Don't forward on reverse packets here, only store them
+        #   Will get forwarded on in TLSBiFlowMonitor
+        #
+        print "TLSUnknownFlowMonitor: got reverse traffic"
+        self.reassembler_reverse.add_pkt(pkt.clone())
+        self.dr2dp.send_to_dr(str(pkt))
+
+    def traffic_from_client(self, pkt):
+        """
+        Process packets coming from the client
+        """
+
+        self.dr2dp.send_to_dr(str(pkt.clone()))
+        
+        # Deal with acks  
+        #
+        if pkt.get_payload_len() == 0:
+            return
+        
+        # If we see a RST or FIN, abandon the hijack
+        # and send the packet to the DH.
+        #
+        flags = pkt.get_flags()
+        if flags & (dpkt.tcp.TH_FIN | dpkt.tcp.TH_RST):
+            print "Detected FIN or RST"
+            self.cm.remove_flow(self.flow_tuple)
+            return
+
+        self.reassembler_forward.add_pkt(pkt)       
+       
+        if self.crypto.clientVersion == (0, 0):
+            (self.crypto.clientVersion,
+             self.crypto.clientRecordHeaderLen) = sslIdentify(
+                    self.reassembler_forward)
+        
+        if self.crypto.clientVersion == (0, 0):
+            self.cm.remove_flow(self.flow_tuple)
+            return
+
+        tuple = pkt.get_tuple()
+        (rec, header)= tlsRecordRecv(
+                self.cm, tuple, self.reassembler_forward, 
+                self.crypto.clientRecordHeaderLen, 
+                self.crypto.clientVersion)
+
+        if rec == None:
+            return
+
+        subtype = rec.tcParseStream.get(1)
+        if (rec.type == tlsConst.ContentType.handshake
+            and (subtype == tlsConst.HandshakeType.client_hello)):
+                clientRandom = self.clientHello(rec)
+                if clientRandom != -1:
+                    self.tunnel_type = self.getTLSTunnelType(clientRandom)
+                else:
+                    self.cm.remove_flow(self.flow_tuple)
+                    
+    def clientHello(self, rec):
+      
+        # Bump the buffer pointer up to the start of the sentinel
+        ch = tlsTm.ClientHello().parse(rec.tcParseStream)
+        sentinel = ch.random
+        self.crypto.clientVersion = ch.client_version
+        self.crypto.clientRandom = array.array('B', [b for b in sentinel])
+
+        cipher_suites = array.array('H', ch.cipher_suites)
+        hexsent = binascii.hexlify(sentinel[4:12])
+        if (hexsent in FlowMonitor.sentinels or hexsent.startswith('deadbeef')):
+            # CT_DP2 will use a callback to get at this
+            # TLSUni/BiFlowMonitor instance, in order to ask it for
+            # the sentinel.  We'll also be using it to calculate
+            # the premaster secret we expect from the client
+            #
+            # FIXME this includes more than just the sentinel
+            #
+            self.crypto.sentinel = sentinel
+            if hexsent.startswith('deadbeef'):
+                self.crypto.sentinelLabel = 'deadbeef0000000000000000000000000000000000000000'
+            else:
+                self.crypto.sentinelLabel = self.sentinels[hexsent]
+            self.state = 'ClientSentinelSeen'
+        
+            # This must be set before updateCBC gets called.
+            # Because we only support AES128 and AES256, this is 
+            # always 16 bytes
+            #
+            self.crypto.ivLength = 16       
+            updateCBC(rec, 'C->S', self.crypto)
+        
+            return ch.random
+        
+        else:
+            return -1
+           
+    
+    def getTLSTunnelType(self, clientRandom):
+        """
+        XOR 1st bit of last byte of client random with 1st bit of
+        last byte of sentinel label
+        """
+        
+        tunnel_type_byte = ord(clientRandom[-1:])
+
+        # sentinelLabel is stored as hex so need to take last 2 char and unhex
+        #        
+        sentinel_label_byte = ord(
+                binascii.unhexlify(self.crypto.sentinelLabel[-2:]))
+        decode_byte = tunnel_type_byte ^ sentinel_label_byte
+        
+        #print "TunnelTypeByte"
+        #print bin(tunnel_type_byte)
+        #print bin(sentinel_label_byte)  
+        #print bin(decode_byte)
+        #print self.crypto.sentinelLabel
+
+        # And with byte = 1 to check whether 1st bit is set
+        #
+        if (decode_byte & 1) != 0:
+            tunnel_type_bit = 1
+        else:
+            tunnel_type_bit = 0
+              
+        if tunnel_type_bit == 0:
+            return const.CREATE_TLS_BI_TUNNEL
+        elif tunnel_type_bit == 1:
+            return const.CREATE_TLS_UNI_TUNNEL           
+        else:
+            # This case should never happen: either the bit was 0 or 1
+            #
+            self.cm.remove_flow(self.flow_tuple)        
+            return const.UNKNOWN_TUNNEL
+
+
 class TLSFlowMonitor(FlowMonitor):
     """
     Handle TLS flows
@@ -2143,24 +2464,25 @@ class TLSFlowMonitor(FlowMonitor):
     PMS_ENCRYPTED_LENGTHS = (64, 128, 256, 512, 1024, 2048)
     CB_SENTINEL_LABEL_BYTES = 24
 
-    def __init__(self, tupl, cm, syn_options, isn, dr2dp):
-        # tupl to isn are required by FlowMonitor.__init__
-        # dr2dp: the dr2dp_dp.py:DR2DP_DP that lets us communicate
-        # with the DR about this flow.
 
-        """
-        TLSFlowMonitor watches the data on a TLS flow --- looking for
-        the steps of the TLS handshake, and looking for the components
-        that represent the Curveball TLS handshake.  Once the
-        handshake arrives, the TLSFlowMonitor hijacks the connection.
-        """
+    def __init__(self, old_flow_mon, dr2dp):
+
+        tupl          = old_flow_mon.flow_tuple
+        cm            = old_flow_mon.cm
+        syn_options   = old_flow_mon.syn_options
+        isn           = old_flow_mon.isn
         FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
 
-        self.crypto = TLSCryptoData()
+        self.dr2dp = old_flow_mon.dr2dp
+        self.reassembler_forward = old_flow_mon.reassembler_forward
+        self.reassembler_reverse = old_flow_mon.reassembler_reverse
+        self.recv_buf = old_flow_mon.recv_buf
+        self.crypto = old_flow_mon.crypto
+        self.state = old_flow_mon.state
+        self.tunnel_type = const.TLS_BI_TUNNEL
 
         self.client_addr = None
         self.client_port = None
-        self.dr2dp = dr2dp
         self.client_data_records = 0
         self.from_client_decrypt_temp = None
         
@@ -2265,7 +2587,7 @@ class TLSFlowMonitor(FlowMonitor):
         try:
             if r.type == tlsConst.ContentType.handshake:
                 subtype = r.tcParseStream.get(1)
-                
+
                 if subtype == tlsConst.HandshakeType.server_hello:
                     self._serverHello(r)
                     
@@ -2307,7 +2629,7 @@ class TLSFlowMonitor(FlowMonitor):
 
         if self.crypto.version == (0, 0):
             (self.crypto.version, self.crypto.serverRecordHeaderLen
-                    ) = self.ssl_identify(self.reassembler_reverse)
+                    ) = sslIdentify(self.reassembler_reverse)
         
         # Not enough data available to identify the version
         #
@@ -2321,48 +2643,20 @@ class TLSFlowMonitor(FlowMonitor):
         # Note that loop also exits when we run out of input
         #
         while self.state != 'Hijacked':
-            r = self.tls_record_recv(
-                    self.reassembler_reverse,self.crypto.serverRecordHeaderLen,
+            (rec, header) = tlsRecordRecv(
+                    self.cm,
+                    self.flow_tuple,
+                    self.reassembler_reverse,
+                    self.crypto.serverRecordHeaderLen,
                     self.crypto.version)
             
-            if r == None:
+            if rec == None:
                 return
 
-            self._serverMessage(r)
+            self._serverMessage(rec)
 
-    def _clientHello(self, r, pkt):
-        
-        # Bump the buffer pointer up to the start of the
-        # sentinel
-        #
-        ch = tlsTm.ClientHello().parse(r.tcParseStream)
-        sentinel = ch.random
-        self.crypto.clientVersion = ch.client_version
-        self.crypto.clientRandom = array.array('B', [b for b in sentinel])
-        cipher_suites = array.array('H', ch.cipher_suites)
-
-        hexsent = binascii.hexlify(sentinel[4:12])
-        if (hexsent in FlowMonitor.sentinels or
-            (permit_deadbeef and hexsent.startswith('deadbeef'))):
-
-            # CT_DP2 will use a callback to get at this
-            # TLSFlowMonitor instance, in order to ask it for
-            # the sentinel.  We'll also be using it to calculate
-            # the premaster secret we expect from the client
-
-            # FIXME this includes more than just the sentinel
-            self.crypto.sentinel = sentinel
-            if hexsent.startswith('deadbeef'):
-                self.crypto.sentinelLabel = 'deadbeef0000000000000000000000000000000000000000'
-            else:
-                self.crypto.sentinelLabel = self.sentinels[hexsent]
-            self.state = 'ClientSentinelSeen'
-        else:
-            self.state = 'PassThrough'
-            self.cm.remove_flow(self.flow_tuple)
-
-    def clientKeyExchange(self, r, pkt):
-        tls_handshake_data_len = r.tcParseStream.get(3)
+    def clientKeyExchange(self, rec, pkt):
+        tls_handshake_data_len = rec.tcParseStream.get(3)
 
         # See Eric Rescorla, "SSL and TLS: designing and building
         # secure systems", p 79 (discussion of ClientKeyExchange
@@ -2394,7 +2688,7 @@ class TLSFlowMonitor(FlowMonitor):
        
         elif self.crypto.version in ((3,1), (3,2), (3,3)):
             
-            length = r.tcParseStream.get(2)           
+            length = rec.tcParseStream.get(2)
             if length not in TLSFlowMonitor.PMS_ENCRYPTED_LENGTHS:
                 log_warn("C->S: Client looks like it's using "
                          + "SSL 3.0 premaster secret length non-encoding")
@@ -2411,33 +2705,27 @@ class TLSFlowMonitor(FlowMonitor):
         # pmslen until we've found one that works.  Fortunately, there
         # are only a few candidates to try.
         #    
-        encryptedPMS = r.tcParseStream.get(pmslen)
+        encryptedPMS = rec.tcParseStream.get(pmslen)
         return self.crypto.check_client_pms(encryptedPMS)
 
-    def handshake_client_to_server_state_machine(self, r, pkt, pkt_sent):
+    def handshake_client_to_server_state_machine(self, rec, pkt, pkt_sent):
         """
         Helper routine for handshake_client_to_server
         """
                            
-        # We have a tls_record (r), process it according to the state
+        # We have a tls_record (rec), process it according to the state
         # we're in
         if not pkt_sent:
             self.dr2dp.send_to_dr(str(pkt))
 
-        subtype = r.tcParseStream.get(1)
+        subtype = rec.tcParseStream.get(1)
 
-        if(self.state == 'Init'
-           and r.type == tlsConst.ContentType.handshake
-           and (subtype == tlsConst.HandshakeType.client_hello)):
-            
-            self._clientHello(r, pkt)
+        if (self.state == 'ClientSentinelSeen'
+            and rec.type == tlsConst.ContentType.handshake):
 
-        elif(self.state == 'ClientSentinelSeen'
-             and r.type == tlsConst.ContentType.handshake):
-            
             if(subtype == tlsConst.HandshakeType.client_key_exchange):
                 
-                if self.clientKeyExchange(r, pkt):
+                if self.clientKeyExchange(rec, pkt):
                     self.state = 'ClientPremasterSeen'
                 else:
                     self.state = 'PassThrough'
@@ -2454,12 +2742,12 @@ class TLSFlowMonitor(FlowMonitor):
                             
         elif (self.state == 'WaitingForClientData'):
             
-            if r.type == tlsConst.ContentType.application_data:               
+            if rec.type == tlsConst.ContentType.application_data:
             
                 # the client bundles up its get in several records
                 self.client_data_records += 1
                 
-                if (self.check_record_hmac(r, self.client_data_records) == False):
+                if (self.check_record_hmac(rec, self.client_data_records) == False):
                      self.dr2dp.send_to_dr(str(pkt))
                      self.cm.remove_flow(self.flow_tuple)
                      return
@@ -2492,35 +2780,9 @@ class TLSFlowMonitor(FlowMonitor):
         
         return True
 
-    def update_cbc(self, r, dir):
-        """
-        When we see encrypted records, keep track of the last block
-        for use in future decryption of CBC.
-        """
-        # this might come in handy for stream ciphers, too.
-        subtype = r.tcParseStream.bytes[0]
-        if(r.type == tlsConst.ContentType.application_data
-           or (r.type == tlsConst.ContentType.handshake
-               and tlsHandshakeFinished(subtype))):
-            
-            # This is an encrypted record, remember last cipher block.
-            if dir == "C->S":
-                self.crypto.clientIVBlock = r.tcParseStream.bytes[-self.crypto.ivLength:]
-            else:
-                self.crypto.serverIVBlock = r.tcParseStream.bytes[-self.crypto.ivLength:]
-
     def handshake_client_to_server(self, pkt):
 
         self.reassembler_forward.add_pkt(pkt)
-
-        if self.crypto.clientVersion == (0, 0):
-            (self.crypto.clientVersion,
-             self.crypto.clientRecordHeaderLen) = self.ssl_identify(
-                    self.reassembler_forward)
-
-        if self.crypto.clientVersion == (0, 0):
-            self.dr2dp.send_to_dr(str(pkt))
-            return
 
         pkt_sent = False
         while self.state != 'Hijacked':
@@ -2529,108 +2791,31 @@ class TLSFlowMonitor(FlowMonitor):
             # packet-processing decides we've entered the hijacked
             # state.
 
-            r = self.tls_record_recv(self.reassembler_forward,
-                                     self.crypto.clientRecordHeaderLen,
-                                     self.crypto.clientVersion)
-            if r == None:
+            (rec, header) = tlsRecordRecv(
+                    self.cm,
+                    self.flow_tuple,
+                    self.reassembler_forward,
+                    self.crypto.clientRecordHeaderLen,
+                    self.crypto.clientVersion)
+            
+            if rec == None:
                 # not enough data accumulated in reassembler yet
                 if not pkt_sent:
                     self.dr2dp.send_to_dr(str(pkt))
                     pkt_sent = True
                 return 
             else:
-                self.update_cbc(r, 'C->S')
+                updateCBC(rec, 'C->S', self.crypto)
                 if self.state == 'PassThrough':
                     if not pkt_sent:
                         self.dr2dp.send_to_dr(str(pkt))
                         pkt_sent = True
                     return 
                 else:
-                    self.handshake_client_to_server_state_machine(r, pkt, pkt_sent)
+                    self.handshake_client_to_server_state_machine(rec, pkt, pkt_sent)
                     # handshake_client_to_server_state_machine will send the pkt
                     # if it hasn't already been sent, so mark pkt_sent as True
                     pkt_sent = True
-
-    def tls_record_recv(self, reassembler, header_len, ssl_version):
-        """
-        Much of this code is modeled on tlslite's
-        TLSRecordLayer._getNextRecord method
-        """
-        
-        # not enough data available to read a header yet
-        if reassembler.len() < header_len:
-            return None
-
-        # I don't think the tlslite documentation makes it clear that
-        # the argument to tlsTc.Parser() needs to be a bytearray (inside
-        # the tlslite code it treats elements of the array as
-        # integers, not chars).
-        bytes = bytearray(reassembler.peek(header_len))
-
-        try:
-            if ssl_version == (3, 0):
-                r = tlsTm.RecordHeader2().parse(tlsTc.Parser(bytes))
-            elif ssl_version in ((3,1), (3,2)):
-                r = tlsTm.RecordHeader3().parse(tlsTc.Parser(bytes))
-            else:
-                log_error("wrong ssl_version (%s)" % str(ssl_version))
-                self.cm.remove_flow(self.flow_tuple)
-                return None
-            
-        except SyntaxError:
-            # tlslite (inappropriately, I think) uses SyntaxError to
-            # tell us that it sees a malformed TLS record
-            log_error("Malformed TLS record")
-            self.cm.remove_flow(self.flow_tuple)
-            return None
-
-        # Protocol defines maximum length to be 2^14 (16384)
-        # tlslite.TLSRecordLayer._getNextRecord() uses 18432 here, for
-        # some reason
-        if r.length > 18432:
-            log_error("SSL Record overflow")
-            self.cm.remove_flow(self.flow_tuple)
-            return None
-
-        # Don't have the full record yet
-        if r.length + header_len > reassembler.len():
-            return None
-
-        # discard header we've already peeked at
-        reassembler.recv(header_len, raw=True)
-
-        # another view into the data, suitable for handing to tlslite
-        # parse routines.
-        r.tcParseStream = tlsTc.Parser(
-                bytearray(reassembler.recv(r.length, raw=True)))
-        return r
-
-    def ssl_identify(self, reassembler):
-        """
-        Figure out if correspondent is speaking SSL3 or SSL2, and
-        corresponding header sizes.
-        """
-
-        if reassembler.len() < 1:
-            return (None, None)
-        else:
-            # slavishly copied from
-            # Tlslite.TLSRecordLayer._getNextRecord() --- I don't see
-            # where the val == 128/2 byte header comes from.  Maybe we
-            # don't even want to talk to hosts that use such records.
-            bytes = reassembler.peek(1)
-            val = struct.unpack('B', bytes)[0]
-
-            # XXXX FIXME --- this might be (3,0)
-            # fix is to convert over to using tlslite here
-            if val in tlsConst.ContentType.all:
-                return ((3, 1), 5)
-
-            elif val == 128:
-                return ((2, 0), 2)
-            else:
-                log_error("Unknown SSL version: %d" % int(val))
-                return (None, None)
 
     def __str__(self):
         return """TLSFlowMonitor %d
@@ -2661,28 +2846,31 @@ class TLSUniFlowMonitor(FlowMonitor):
     PMS_ENCRYPTED_LENGTHS = (64, 128, 256, 512, 1024, 2048)
     CB_SENTINEL_LABEL_BYTES = 24
 
-    def __init__(self, tupl, cm, syn_options, isn, dr2dp, tls_uni_ct_dp):
+    def __init__(self, old_flow_mon, dr2dp, tls_uni_ct_dp):
 
+        tupl          = old_flow_mon.flow_tuple
+        cm            = old_flow_mon.cm
+        syn_options   = old_flow_mon.syn_options
+        isn           = old_flow_mon.isn
         FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
 
+        self.dr2dp = old_flow_mon.dr2dp
+        self.reassembler_forward = old_flow_mon.reassembler_forward
+        self.recv_buf = old_flow_mon.recv_buf
+        self.crypto = old_flow_mon.crypto
+        self.state = old_flow_mon.state
+        self.tunnel_type = const.TLS_UNI_TUNNEL
+        
         self.host = str(socket.inet_ntoa(self.flow_tuple[2]))
         self.client_addr = None
         self.client_port = None
-        self.dr2dp = dr2dp
         self.client_data_records = 0 
         self.cipher_text1 = None
-        
+
         # TLS crypto state
         #
-        self.crypto = TLSCryptoData()
         self.from_client_dec = None
-        self.from_client_enc = None
-
-        # This must be set before updateCBC gets called.
-        # Because we only support AES128 and AES256, this is 
-        # always 16 bytes
-        #
-        self.crypto.ivLength = 16         
+        self.from_client_enc = None 
 
         # We only support (3,1)
         #
@@ -2692,7 +2880,7 @@ class TLSUniFlowMonitor(FlowMonitor):
 
         # Mole variables
         #
-        self.is_first_data_pkt = True
+        self.mole_created = False
         self.mole = None
         self.tls_mole_encoder = None 
         self.tls_uni_ct_dp = tls_uni_ct_dp
@@ -2702,7 +2890,7 @@ class TLSUniFlowMonitor(FlowMonitor):
         self.welcome_req = ("GET /" + const.TLSUNI_CURVEBALLHELLO 
                             + " HTTP/1.1\r\nUser-Agent:"
                             + "EKRClient\r\nHost: decoy:443\r\n\r\n") 
-                
+
     def handshake(self, pkt):
         """
         Follow the TLS handshake record by record
@@ -2729,138 +2917,90 @@ class TLSUniFlowMonitor(FlowMonitor):
             return
         
         if pkt.get_sport() == 443:
-            self.dr2dp.send_to_dr(str(pkt))           
+            self.dr2dp.send_to_dr(str(pkt))
         else:
-            self.clientToServer(pkt)
+            self.client_to_server(pkt)
 
-    def clientToServer(self, pkt):
-       
+    def client_to_server(self, pkt):
+
         self.reassembler_forward.add_pkt(pkt)
 
-        if self.crypto.clientVersion == (0, 0):
-            (self.crypto.clientVersion, self.crypto.clientRecordHeaderLen
-                    ) = self.sslIdentify(self.reassembler_forward)
+        if self.state != 'WaitingForClientData':
+            self.dr2dp.send_to_dr(str(pkt.clone()))
 
-        if self.crypto.clientVersion == (0, 0):
-            self.dr2dp.send_to_dr(str(pkt))
-            return
+        elif (self.state == 'WaitingForClientData' and
+              self.client_data_records <= 1):
+            self.dr2dp.send_to_dr(str(pkt.clone()))
 
-        # Need to keep track of whether or not pkt has been sent
-        # to make sure that we do forward it on
-        #
-        pkt_sent = False    
-              
-        # Check if handshake has completed. If so, want to spoof and forward 
-        # on pkts immediately, processing the records afterwards
-        #
-        if (self.state == 'WaitingForClientData' and 
-            self.is_first_data_pkt == False):    
-
-            pkt_clone = pkt.clone()
-            pkt_seq_no = pkt_clone.get_seq()
-            self.useMoleTunnel(pkt_seq_no, pkt_clone)
-            pkt_sent = True
+        elif self.state == 'WaitingForClientData' and self.mole_created == True:
+            self.use_mole_tunnel(pkt.get_seq(), pkt.clone())
 
         # Loop through records
         #        
         while True:
-            r = self.tlsRecordRecv(
-                    self.reassembler_forward,
+
+            (rec, header) = tlsRecordRecv(
+                    self.cm, self.flow_tuple, self.reassembler_forward,
                     self.crypto.clientRecordHeaderLen,
                     self.crypto.clientVersion)
 
-            if r == None:
-                if not pkt_sent:
-                    self.dr2dp.send_to_dr(str(pkt))
-                    pkt_sent = True
+            if rec == None:
                 return
-            else:
-                self.updateCBC(r, 'C->S')
-                if self.state == 'PassThrough':
-                    if not pkt_sent:
-                        self.dr2dp.send_to_dr(str(pkt))
-                        pkt_sent = True
-                    return
-                else:
-                    # clientToServer_state_machine will send the pkt if it
-                    # hasn't already been sent, so mark pkt_sent as True
-                    #
-                    self.clientToServerStateMachine(r, pkt, pkt_sent)
-                    pkt_sent = True
-    
-    def clientToServerStateMachine(self, r, pkt, pkt_sent):
+
+            updateCBC(rec, 'C->S', self.crypto)
+            subtype = rec.tcParseStream.get(1)
+            cipher_text = copy.copy(rec.tcParseStream.bytes[:])
+            header_type_hex = str(header).encode("hex")[0:2]
+
+            if (self.state == 'ClientSentinelSeen' and
+                rec.type == tlsConst.ContentType.handshake):
+                if subtype == tlsConst.HandshakeType.client_key_exchange:
+                    self.state = 'ClientPremasterSeen'
+
+            elif self.state == 'ClientPremasterSeen':
+                if int(header_type_hex) == 16:
+                    self.state = 'WaitingForClientData'
+
+            elif self.state == 'WaitingForClientData':
+
+                if rec.type == tlsConst.ContentType.application_data:
+                    self.client_data_records += 1
+
+                    if self.client_data_records <= 2:
+                        self.process_app_data_rec_1_2(cipher_text)
+                    else:
+                        self.process_app_data_rec_3_plus(cipher_text, pkt)
+
+    def process_app_data_rec_1_2(self, cipher_text):
         """
-        Helper routine for handshakeClientToServer
+        Process 1st and 2nd application data records
         """
 
-        if not pkt_sent and self.state != 'WaitingForClientData':
-            self.dr2dp.send_to_dr(str(pkt))
-
-        subtype = r.tcParseStream.get(1)
-
-        if (self.state == 'Init'
-           and r.type == tlsConst.ContentType.handshake
-           and (subtype == tlsConst.HandshakeType.client_hello)):
-            self.clientHello(r, pkt)
-
-        elif (self.state == 'ClientSentinelSeen'
-             and r.type == tlsConst.ContentType.handshake):
-            if (subtype == tlsConst.HandshakeType.client_key_exchange):
-                self.state = 'ClientPremasterSeen'
-                    
-        elif self.state == 'ClientPremasterSeen':
-            # This record is encrypted, and the encryption seems to
-            # cover the message subtype
-            #
-            if tlsHandshakeFinished(subtype):
-                # FIXME: if we ever do a stream cipher, we'll have to
-                # pass this ciphertext through it.
-                #print("Encrypted finished subtype? 0x%x" % subtype)
-                self.state = 'WaitingForClientData'
-   
-        elif(self.state == 'WaitingForClientData'):
-            if r.type == tlsConst.ContentType.application_data:
-                self.processApplicationData(pkt, r)
-
-    def processApplicationData(self, pkt, r):
-
-        # TODO: What if tcParseStream returns no record? 
-        #       We shouldn't still increment in this case,
-        #       we should bail out.
-        #
-        cipher_text = copy.copy(r.tcParseStream.bytes[:])
-        self.client_data_records += 1
-        
-        if self.client_data_records == 1:            
-            # TODO: don't understand why need to always
-            #       forward on pkt. Since sometimes more
-            #       than one record in a pkt 
+        if self.client_data_records == 1:
             self.cipher_text1 = cipher_text
-            self.dr2dp.send_to_dr(str(pkt))
 
-        elif self.client_data_records == 2:          
+        elif self.client_data_records == 2:
             cipher_text2 = cipher_text
-            self.dr2dp.send_to_dr(str(pkt))
-            
+
             # At this point we have all the information we need
             #  to obtain the encryption and decryption keys
             #
-            self.crypto.serverRandom = self.decodeStencil(cipher_text2)
+            self.crypto.serverRandom = self.decode_stencil(cipher_text2)
             self.crypto.compute_pms()
             self.crypto.calcMasterSecret()
             self.crypto.calcSessionKeyData()
-                    
+
             # Create encryption state
             #    
             correct_iv_rec1 = getCorrectIV(self.cipher_text1,
                                            self.crypto.clientKeyBlockSpoofDec,
                                            self.crypto.clientMACBlockSpoofDec)
-            
+
             encrypt_key = self.crypto.clientKeyBlockSpoofEnc
             hmac_key = self.crypto.clientMACBlockSpoofEnc
-            self.from_client_enc = self.createCipherState( 
+            self.from_client_enc = self.create_cipher_state(
                     encrypt_key, correct_iv_rec1, hmac_key, seq_no=1)
-            
+
             # Decrypt first 2 records and check hmacs. 
             #   We don't have the keys until we receive the 
             #   first 2 records, so we can't check the hmac
@@ -2870,98 +3010,109 @@ class TLSUniFlowMonitor(FlowMonitor):
             #
             decrypt_key = self.crypto.clientKeyBlockSpoofDecTemp
             hmac_key = self.crypto.clientMACBlockSpoofDecTemp
-            from_client_temp = createAES(decrypt_key, correct_iv_rec1)   
+            from_client_temp = createAES(decrypt_key, correct_iv_rec1)
             plain_text1 = from_client_temp.decrypt(self.cipher_text1)
-            plain_text2 = from_client_temp.decrypt(cipher_text2)     
-                  
+            plain_text2 = from_client_temp.decrypt(cipher_text2)
+
             if (checkHMAC(plain_text1, 1, hmac_key) == False or
-                checkHMAC(plain_text2, 2, hmac_key) == False): 
-                self.dr2dp.send_to_dr(str(pkt))
+                checkHMAC(plain_text2, 2, hmac_key) == False):
                 self.cm.remove_flow(self.flow_tuple)
                 return
-                                  
+
             # Decrypted first 2 records to know what they are. 
             #   Now encrypt then decrypt to get into right 
             #   encryption and decryption state
             #
             decrypt_key = self.crypto.clientKeyBlockSpoofDec
-            self.from_client_dec = createAES(decrypt_key, correct_iv_rec1)   
+            self.from_client_dec = createAES(decrypt_key, correct_iv_rec1)
             self.from_client_enc.encrypt_data_record(plain_text1)
             self.from_client_enc.encrypt_data_record(plain_text2)
-            self.from_client_dec.decrypt(self.cipher_text1)    
-            self.from_client_dec.decrypt(cipher_text2) 
-               
-        else:
-            
-            # Create Mole
-            #
-            if self.mole == None:
-                pkt_clone = pkt.clone()
-                pkt_seq_no = pkt_clone.get_seq()  
-                self.createMoleTunnel(pkt_seq_no)    
-                self.useMoleTunnel(pkt_seq_no, pkt_clone)            
-                self.is_first_data_pkt = False
+            self.from_client_dec.decrypt(self.cipher_text1)
+            self.from_client_dec.decrypt(cipher_text2)
 
-            # Determine length of padding and length of data
-            #
-            plain_text = self.from_client_dec.decrypt(cipher_text)
-            hmac_key = self.crypto.clientMACBlockSpoofEnc
-            rec_no = self.client_data_records
-            if (checkHMAC(plain_text, rec_no, hmac_key) == False):
-                self.dr2dp.send_to_dr(str(pkt))
-                self.cm.remove_flow(self.flow_tuple)
-                return
-            
-            pad_len = ord(plain_text[-1:])
-            hmac_len = self.crypto.macLength 
-            data_len = len(plain_text) - hmac_len - pad_len -1 
-            data = plain_text[:data_len]
-                    
-            # Forward on data from record to CT_DP
-            #
-            try:
-                self.ctdp_src_sock.send(data)
-            except socket.error:
-                print "Error: socket closed"
-                self.dr2dp.send_to_dr(str(pkt))
-                self.cm.remove_flow(self.flow_tuple)
-        
-    def decodeStencil(self, cipher_text):
+    def process_app_data_rec_3_plus(self, cipher_text, pkt):
+        """
+        Process 3rd and later application data records
+
+        pkt is only used to create the mole tunnel, or to
+        bail out gracefully if hmac or socket fail
+        """
+
+        # Create Mole
+        #
+        if self.mole == None:
+            pkt_clone = pkt.clone()
+            pkt_seq_no = pkt_clone.get_seq()
+            self.create_mole_tunnel(pkt_seq_no)
+            self.use_mole_tunnel(pkt_seq_no, pkt_clone)
+            self.mole_created = True
+
+        # Determine length of padding and length of data
+        #
+        if self.from_client_dec == None:
+            print "Error: client decrypt object not initialized"
+            self.dr2dp.send_to_dr(str(pkt))
+            self.cm.remove_flow(self.flow_tuple)
+            return
+
+        plain_text = self.from_client_dec.decrypt(cipher_text)
+        hmac_key = self.crypto.clientMACBlockSpoofEnc
+        rec_no = self.client_data_records
+        if (checkHMAC(plain_text, rec_no, hmac_key) == False):
+            print "Error: hmac failed"
+            self.dr2dp.send_to_dr(str(pkt))
+            self.cm.remove_flow(self.flow_tuple)
+            return
+
+               
+        pad_len = ord(plain_text[- 1 : ])
+        hmac_len = self.crypto.macLength
+        data_len = len(plain_text) - hmac_len - pad_len - 1
+        data = plain_text[:data_len]
+
+        # Forward on data from record to CT_DP
+        #
+        try:
+            self.ctdp_src_sock.send(data)
+        except socket.error:
+            self.dr2dp.send_to_dr(str(pkt))
+            self.cm.remove_flow(self.flow_tuple)
+
+    def decode_stencil(self, cipher_text):
         """
         Pull off ciphersuite and server random from the stencil
         """
-        
+
         # TODO: Not handling deadbeef case here
         # 
         stencil_key = self.crypto.sentinelLabel[-32:]
         decoder = EncryptedStencilDecoder(stencil_key)
-              
+
         [cipherSuite, serverRandom] = \
                 decoder.decode_with_ciphersuite(str(cipher_text))
-            
+
         serverRandom = bytearray(serverRandom)
         newServerRandom = array.array('B',[b for b in serverRandom])
         self.crypto.cipherSuite = cipherSuite
         if self.crypto.setCipherSuite(self.crypto.cipherSuite) == -1:
             self.cm.remove_flow(self.flow_tuple)
-               
+
         return newServerRandom
 
-    def createCipherState(self, key_block, iv, mac, seq_no):
-    
+    def create_cipher_state(self, key_block, iv, mac, seq_no):
+
         cipher_state = cb.cssl.cssl.CurveballTLS()
         cipher_state.cipher_set(self.crypto.createCipherFunc(key_block, iv),iv)
         cipher_state.hmac_key_set(mac)
         cipher_state.sequence_number_set(seq_no)
-        return cipher_state  
-   
-    def createMoleTunnel(self, tcp_seq_no):
+        return cipher_state
+
+    def create_mole_tunnel(self, tcp_seq_no):
         """
         This tunnel should only be created after the TLSUNI handshake
-        has completed. Right now, it is created right away because
-        we're still using the bidirectional handshake.
+        has completed.
         """
-    
+
         # Open a socket to the TLS_UNI_CT_DP
         #
         try:
@@ -2976,15 +3127,15 @@ class TLSUniFlowMonitor(FlowMonitor):
         #
         self.tls_mole_encoder = HttpMoleCryptoEncoder(
                 self.host, self.crypto.sentinelLabel)
-        
+
         # Spoof record
         #
         self.mole = TLSMoleTunnelDp(
                 self.tls_mole_encoder, self.from_client_enc, 
                 tcp_seq_no, self.welcome_req)
-        
+
         self.tls_uni_ct_dp.setMole(self.mole)
-        
+
         # Set up buffering for mole tunnel
         #
         self.partition_size = 0x200000
@@ -2996,8 +3147,8 @@ class TLSUniFlowMonitor(FlowMonitor):
             self.min_partition = self.max_partition - 1
         self.gen_wrap = 0   
 
-    def useMoleTunnel(self, seq_no, pkt):
-        
+    def use_mole_tunnel(self, seq_no, pkt):
+
         # Use a heuristic-based state machine to determine the
         # "unwrapped" sequence number, based on the original sequence number.
         # We assume that the sequence numbers are seen in a semi-sequential
@@ -3057,7 +3208,7 @@ class TLSUniFlowMonitor(FlowMonitor):
         len_payload = len(pkt.get_payload())
         self.mole.extend(eff_seq_no + len_payload)
         new_payload = self.mole.copy(eff_seq_no, len_payload)
-        
+
         # discard 2MB from the queue whenever the
         # queue grows to be more than 4MB.
         #
@@ -3081,143 +3232,8 @@ class TLSUniFlowMonitor(FlowMonitor):
         pkt.update_cksum()
         self.dr2dp.send_to_dr(str(pkt))
 
-        if self.reset_mole_state == False:
-            self.mole.encoder.reset_session_key()
-            self.reset_mole_state = True
-            self.mole.enqueue(self.welcome_req)
-
-    def clientHello(self, r, pkt):
-
-        # Bump the buffer pointer up to the start of the sentinel
-        ch = tlsTm.ClientHello().parse(r.tcParseStream)
-        sentinel = ch.random
-        self.crypto.clientVersion = ch.client_version
-        self.crypto.clientRandom = array.array('B', [b for b in sentinel])
-
-        cipher_suites = array.array('H', ch.cipher_suites)
-        hexsent = binascii.hexlify(sentinel[4:12])
-        if (hexsent in FlowMonitor.sentinels or hexsent.startswith('deadbeef')):
-            # CT_DP2 will use a callback to get at this
-            # TLSFlowMonitor instance, in order to ask it for
-            # the sentinel.  We'll also be using it to calculate
-            # the premaster secret we expect from the client
-            #
-            # FIXME this includes more than just the sentinel
-            #
-            self.crypto.sentinel = sentinel
-            if hexsent.startswith('deadbeef'):
-                self.crypto.sentinelLabel = 'deadbeef0000000000000000000000000000000000000000'
-            else:
-                self.crypto.sentinelLabel = self.sentinels[hexsent]
-            self.state = 'ClientSentinelSeen'
-        else:
-            self.state = 'PassThrough'
-                   
-    def updateCBC(self, r, dir):
-        """
-        When we see encrypted records, keep track of the last block
-        for use in future decryption of CBC.
-        """
-        subtype = r.tcParseStream.bytes[0]
-        if(r.type ==  tlsConst.ContentType.application_data
-           or (r.type ==  tlsConst.ContentType.handshake
-               and tlsHandshakeFinished(subtype))):
-
-            # This is an encrypted record, remember last cipher block
-            if dir == "C->S":
-                self.crypto.clientIVBlock = r.tcParseStream.bytes[
-                        -self.crypto.ivLength:]
-            else:
-                self.crypto.serverIVBlock = r.tcParseStream.bytes[
-                        -self.crypto.ivLength:]
-
-    def tlsRecordRecv(self, reassembler, header_len, ssl_version):
-        """
-        Much of this code is modeled on tlslite's
-        TLSRecordLayer._getNextRecord method
-        """
-        
-        # Not enough data available to read a header yet
-        #
-        if reassembler.len() < header_len:
-            return None
-
-        # I don't think the tlslite documentation makes it clear that
-        # the argument to tlsTc.Parser() needs to be a bytearray (inside
-        # the tlslite code it treats elements of the array as
-        # integers, not chars).
-        #
-        bytes = bytearray(reassembler.peek(header_len))
-
-        try:
-            if ssl_version == (3, 0):
-                r = tlsTm.RecordHeader2().parse(tlsTc.Parser(bytes))
-            elif ssl_version in ((3,1), (3,2)):
-                r = tlsTm.RecordHeader3().parse(tlsTc.Parser(bytes))
-            else:
-                print("wrong ssl_version (%s)" % str(ssl_version))
-                self.cm.remove_flow(self.flow_tuple)
-                return None
-
-        except SyntaxError:
-            print("Malformed TLS record")
-            self.cm.remove_flow(self.flow_tuple)
-            return None
-
-        # Protocol defines maximum length to be 2^14 (16384)
-        # tlslite.TLSRecordLayer._getNextRecord() uses 18432 here, for
-        # some reason
-        #
-        if r.length > 18432:
-            print("SSL Record overflow")
-            self.cm.remove_flow(self.flow_tuple)
-            return None
-
-        # Don't have the full record yet
-        #
-        if r.length + header_len > reassembler.len():
-            return None
-
-        # Discard header we've already peeked at
-        #
-        reassembler.recv(header_len, raw=True)
-
-        # Another view into the data, suitable for handing to tlslite parse routines.
-        #
-        r.tcParseStream = tlsTc.Parser(
-                bytearray(reassembler.recv(r.length, raw=True)))
-
-        return r
-
-    def sslIdentify(self, reassembler):
-        """
-        Figure out if correspondent is speaking SSL3 or SSL2, and
-        corresponding header sizes.
-        """
-
-        if reassembler.len() < 1:
-            return (None, None)
-        else:
-            # slavishly copied from
-            # Tlslite.TLSRecordLayer._getNextRecord() --- I don't see
-            # where the val == 128/2 byte header comes from.  Maybe we
-            # don't even want to talk to hosts that use such records.
-            #
-            bytes = reassembler.peek(1)
-            val = struct.unpack('B', bytes)[0]
-            # XXXX FIXME --- this might be (3,0)
-            # fix is to convert over to using tlslite here
-            if val in tlsConst.ContentType.all:
-                return ((3, 1), 5)
-
-            elif val == 128:
-                return ((2, 0), 2)
-            else:
-                print("Unknown SSL version: %d" % int(val))
-                return (None, None)
-
     def __str__(self):
-        return """TLSFlowMonitor %d
+        return """TLSUniFlowMonitor %d
 client: %s port %d
 state: %s
 sentinel: %s
@@ -3234,8 +3250,115 @@ reassembler_reverse.len: %d
 
 
 
-class ConnectionMonitor(object):
+
+class BittorrentFlowMonitor(FlowMonitor):
     """
+    Handle bidirectional Bittorrent flows
+    """
+
+    def __init__(self, tupl, cm, syn_options, isn, dr2dp):
+        FlowMonitor.__init__(self, tupl, cm, syn_options, isn)
+
+        self.recv_buf = ''
+        self.dr2dp = dr2dp
+        self.tunnel_type = const.BITTORENT_BI_TUNNEL
+        self.sentinel_prefix = None
+        self.sentinel_label = None
+        self.DHexp = None
+
+    def handshake(self, pkt):
+
+        if (self.client_addr == None and
+            pkt.get_dport() == const.BITTORRENT_SERVER_PORT):
+            self.client_addr = pkt.get_src()
+            self.client_port = pkt.get_sport()
+
+        # Deal with acks
+        #
+        if pkt.get_payload_len() == 0:
+            self.dr2dp.send_to_dr(str(pkt))
+            return
+
+        # If we see a RST or FIN, abandon the hijack
+        # and send the packet to the DH.
+        #
+        flags = pkt.get_flags()
+        if flags & (dpkt.tcp.TH_FIN | dpkt.tcp.TH_RST):
+            self.dr2dp.send_to_dr(str(pkt))
+            self.cm.remove_flow(self.flow_tuple)
+            return
+
+        if pkt.get_sport() == const.BITTORRENT_SERVER_PORT:
+            self.serverToClient(pkt)
+        else:
+            self.clientToServer(pkt)
+
+    def serverToClient(self, pkt):
+
+        self.reassembler_reverse.add_pkt(pkt)
+
+        if self.state != 'Hijacked':
+            self.dr2dp.send_to_dr(str(pkt))
+
+        while self.state != 'Hijacked':
+            msg = self.serverMsgRecv()
+
+            if msg == None:
+                return
+            else:
+                self.serverMsgProcess(msg)
+
+    def clientToServer(self, pkt):
+
+        self.reassembler_forward.add_pkt(pkt)
+
+        if self.state != 'Hijacked':
+            self.dr2dp.send_to_dr(str(pkt))
+
+        while self.state != 'Hijacked':
+            msg = self.clientMsgRecv()
+
+            if msg == None:
+                return
+            else:
+                self.clientMsgProcess(msg)
+
+    def serverMsgRecv(self):
+        return None
+
+    def clientMsgRecv(self):
+        return None
+
+    def serverMsgProcess(self, msg):
+        return None
+
+    def clientMsgProcess(self, msg):
+        return None
+
+    def checkSentinel(self, sentinel_prefix):
+
+        self.sentinel_prefix = sentinel_prefix
+
+        if sentinel_prefix in FlowMonitor.bittorrent_sentinels:
+            self.sentinel_label = FlowMonitor.sentinels[sentinel_prefix]
+            self.DHexp = FlowMonitor.bittorrent_sentinels[sentinel_prefix]
+            return True
+
+        elif sentinel_prefix in FlowMonitor.sentinels[sentinel_prefix]:
+            self.sentinel_label = FlowMonitor.sentinels[sentinel_prefix]
+            self.DHexp = None
+            return True
+
+        else:
+            # False positive
+            #
+            self.sentinel_label = None
+            self.DHexp = None
+            print "Bittorrent sentinel is false positive"
+            return False
+
+class ConnectionMonitor(object):
+    """-
     Manages Flows flows from DR2DP_DP
 
     Primary function (dp_recv):
@@ -3246,8 +3369,7 @@ class ConnectionMonitor(object):
     """
 
     def __init__(self, send_to_dr_endpoint, remove_flow_cb, options,
-                 permit_deadbeef_, http_uni_ct_dp, tls_uni_ct_dp,
-                 tls_is_unidirectional):
+                 permit_deadbeef_, http_uni_ct_dp, tls_uni_ct_dp):
 
         self.full_opts = options
         self.flowtable = {}
@@ -3255,8 +3377,7 @@ class ConnectionMonitor(object):
         self.opts = options['tcp_engine']
         self.http_uni_ct_dp = http_uni_ct_dp
         self.tls_uni_ct_dp = tls_uni_ct_dp
-        self.tls_is_unidirectional = tls_is_unidirectional
-
+        
         global permit_deadbeef
         permit_deadbeef = permit_deadbeef_
 
@@ -3282,7 +3403,7 @@ class ConnectionMonitor(object):
         pkt = Packet(pkts[0], read_only=False)
         tuple = pkt.get_tuple()
         self.dr2dp = dr2dp
-
+        
         if tuple in self.flowtable:
             """
             We already know about this flow!
@@ -3297,9 +3418,7 @@ class ConnectionMonitor(object):
                 to remove (i.e., stop redirecting) the flow. Should we keep
                 a list of DRs that have reported each flow?
             """
-            # TODO: Do something here!
-            #
-            DEBUG and log_debug("Already know flow %s" % str(tuple))
+            print "Already know about flow %s" % str(tuple)
             return
 
         # What's the ISN of this flow?
@@ -3310,58 +3429,70 @@ class ConnectionMonitor(object):
             if isn is None or p.get_seq() < isn:
                 isn = p.get_seq()
 
-        # Create the flow monitor
-        #
         if pkt.get_dport() == 443:
-            if self.tls_is_unidirectional:
-                self.flowtable[tuple] = TLSUniFlowMonitor(
-                    tuple, self, opts, isn, dr2dp, self.tls_uni_ct_dp)
-            else:
-                self.flowtable[tuple] = TLSFlowMonitor(
-                        tuple, self, opts, isn, dr2dp)
+            self.flowtable[tuple] = TLSUnknownFlowMonitor(
+                    tuple, self, opts, isn, dr2dp)
 
         elif pkt.get_dport() == 80:
-            self.flowtable[tuple] = UnknownFlowMonitor(tuple, self, opts, isn, dr2dp)
+            self.flowtable[tuple] = HTTPUnknownFlowMonitor(
+                    tuple, self, opts, isn, dr2dp)
 
-        flow_entry = self.flowtable[tuple]
-
-        # The DR already forward on pkts[:-1], so load those up
+        elif pkt.get_dport() == const.BITTORRENT_SERVER_PORT:
+            self.flowtable[tuple] = BittorrentFlowMonitor(
+                    tuple, self, opts, isn, dr2dp)
+        else:
+            print "ConnMon Redirect Flow: unknown port"
+            return
+        
+        # DR already forwarded on pkts[:-1], so load those up
         #
+        try:
+            flow_entry = self.flowtable[tuple]            
+        except:
+            print "flow_entry does not exist"
+            return
+        
         for pkt in pkts[:-1]:
             pkt = Packet(pkt, read_only=True)
-            if pkt.get_sport() == 80:
-                # Not adding http pkts for now, may change in the future
-                #
-                DEBUG and log_debug("reverse pkt")
 
-            elif pkt.get_sport() == 443:
+            if pkt.get_sport() == 443:
                 flow_entry.reassembler_reverse.add_pkt(pkt)
 
             elif pkt.get_dport() == 443:
                 flow_entry.reassembler_forward.add_pkt(pkt)
 
+                if flow_entry.tunnel_type == const.CREATE_TLS_BI_TUNNEL:
+                    self.flowtable[tuple] = TLSFlowMonitor(
+                            flow_entry, self.dr2dp)
+                elif flow_entry.tunnel_type == const.CREATE_TLS_UNI_TUNNEL:
+                    self.flowtable[tuple] = TLSUniFlowMonitor(
+                            flow_entry, self.dr2dp, self.tls_uni_ct_dp)
+
+            elif pkt.get_sport() == 80:
+                DEBUG and log_debug("reverse pkt")
+
             elif pkt.get_dport() == 80:
-                # Add pkt to reassembler and process packet
-                #
                 flow_entry.traffic_from_client(pkt)
-
-                # Create bidirectional or unidirectional http tunnel
-                #
                 if flow_entry.tunnel_type == const.CREATE_HTTP_BI_TUNNEL:
-                    self.flowtable[tuple] = HTTPBiFlowMonitor(flow_entry, self.dr2dp)
-
+                    self.flowtable[tuple] = HTTPBiFlowMonitor(
+                            flow_entry, self.dr2dp)
                 elif flow_entry.tunnel_type == const.CREATE_HTTP_UNI_TUNNEL:
                     self.flowtable[tuple] = HTTPUniFlowMonitor(
                             flow_entry, self.dr2dp, self.http_uni_ct_dp)
 
-            else:
-                DEBUG and log_debug("Error: packet is not http or tls")
+            elif pkt.get_sport() == const.BITTORRENT_SERVER_PORT:
+                flow_entry.reassembler_reverse.add_pkt(pkt)
 
-        # We start state processing (and forwarding) on
-        # the final packet
+            elif pkt.get_dport() == const.BITTORRENT_SERVER_PORT:
+                flow_entry.reassembler_forward.add_pkt(pkt)
+            else:
+                print "Initial pkt: unexpected pkt port"
+
+        # Start state processing/forwarding) on final packet
         #
         pkt = Packet(pkts[-1])
-        if pkt.get_sport() == 80 or pkt.get_sport() == 443:
+        if (pkt.get_sport() == 80 or pkt.get_sport() == 443 or
+            pkt.get_sport() == const.BITTORRENT_SERVER_PORT):
             flow_entry.traffic_to_client(pkt)
 
         elif pkt.get_dport() == 80 or pkt.get_dport() == 443:
@@ -3369,14 +3500,26 @@ class ConnectionMonitor(object):
             #
             flow_entry.traffic_from_client(pkt)
 
-            # Create bidirectional or unidirectional http tunnel
-            #
             if flow_entry.tunnel_type == const.CREATE_HTTP_BI_TUNNEL:
-                self.flowtable[tuple] = HTTPBiFlowMonitor(flow_entry, self.dr2dp)
+                self.flowtable[tuple] = HTTPBiFlowMonitor(
+                        flow_entry, self.dr2dp)
 
             elif flow_entry.tunnel_type == const.CREATE_HTTP_UNI_TUNNEL:
                 self.flowtable[tuple] = HTTPUniFlowMonitor(
                         flow_entry, self.dr2dp, self.http_uni_ct_dp)
+
+            elif flow_entry.tunnel_type == const.CREATE_TLS_BI_TUNNEL:
+                self.flowtable[tuple] = TLSFlowMonitor(
+                        flow_entry, self.dr2dp)
+
+            elif flow_entry.tunnel_type == const.CREATE_TLS_UNI_TUNNEL:
+                self.flowtable[tuple] = TLSUniFlowMonitor(
+                        flow_entry, self.dr2dp, self.tls_uni_ct_dp)
+
+        elif pkt.get_dport() == const.BITTORRENT_SERVER_PORT:
+            flow_entry.traffic_from_client(pkt)
+        else:
+            print "Subsequent packet: unexpected pkt port"
 
     def dp_recv(self, pkt):
         """
@@ -3386,21 +3529,29 @@ class ConnectionMonitor(object):
         pkt = Packet(pkt,read_only=False)
         tuple = pkt.get_tuple('c2d')
         tuple_rev = pkt.get_tuple('d2c')
-
         DEBUG and log_debug("CM: pkt from DR: %s" % strNetTuple(tuple))
+
         try:
             if tuple in self.flowtable:
 
-                DEBUG and log_debug("CM:forward packet to decoy")
                 flow_entry = self.flowtable[tuple]
-                flow_entry.traffic_from_client( pkt )
+                flow_entry.traffic_from_client(pkt)
 
                 if flow_entry.tunnel_type == const.CREATE_HTTP_BI_TUNNEL:
-                    self.flowtable[tuple] = HTTPBiFlowMonitor(flow_entry, self.dr2dp)
+                    self.flowtable[tuple] = HTTPBiFlowMonitor(
+                            flow_entry, self.dr2dp)
 
                 elif flow_entry.tunnel_type == const.CREATE_HTTP_UNI_TUNNEL:
                     self.flowtable[tuple] = HTTPUniFlowMonitor(
                             flow_entry, self.dr2dp, self.http_uni_ct_dp)
+
+                elif flow_entry.tunnel_type == const.CREATE_TLS_BI_TUNNEL:
+                    self.flowtable[tuple] = TLSFlowMonitor(
+                            flow_entry, self.dr2dp)
+
+                elif flow_entry.tunnel_type == const.CREATE_TLS_UNI_TUNNEL:
+                    self.flowtable[tuple] = TLSUniFlowMonitor(
+                            flow_entry, self.dr2dp, self.tls_uni_ct_dp)
 
             elif tuple_rev in self.flowtable:
                 self.flowtable[tuple_rev].traffic_to_client(pkt)
@@ -3423,13 +3574,44 @@ class ConnectionMonitor(object):
             self.remove_flow(tuple)
             return
 
+    def handle_icmp(self, tuple, pkt, reverse = False):
+        """
+        Handle ICMP packet.
+        """
+
+        DEBUG and log_debug("CM: ICMP from DR: %s" % strNetTuple(tuple))
+
+        icmp_pkt = Packet(pkt, read_only=False)
+        if icmp_pkt.is_icmp() != True:
+            DEBUG and log_debug("CM: invalid ICMP packet")
+            return
+
+        tuple_rev = (tuple[2], tuple[3], tuple[0], tuple[1])
+
+        try:
+            if reverse == False and tuple in self.flowtable:
+                self.flowtable[tuple].handle_icmp(icmp_pkt)
+
+            elif reverse == True and tuple_rev in self.flowtable:
+                self.flowtable[tuple_rev].handle_icmp(icmp_pkt, reverse)
+
+            else:
+                # DP is not actively redirecting this flow
+                self.send_to_dr_endpoint(str(pkt))
+                DEBUG and log_debug("CM: dropping ICMP packet")
+                return
+
+        except Exception as e:
+            log_error("CM: exception handling ICMP: %s" % str(e))
+            return
+
     def remove_flow_deferred(obj, tuple):
         """
         Remove a flow, but after a short delay
         """
 
         def rmflow_callback(obj, tuple):
-            print 'DEFERRED RMFLOW (%s)' % str(tuple)
+            print 'DEFERRED RMFLOW (%s)' % strNetTuple(tuple)
             obj.remove_flow(tuple)
 
         reactor.callLater(0.3, rmflow_callback, obj, tuple)
@@ -3519,24 +3701,56 @@ class ConnectionMonitor(object):
         for monitor in self.flowtable.itervalues():
             if monitor.hijack and monitor.hijack.hijack_tuple[:2] == hijack_tuple:
 
+                tunnel_params = (
+                        monitor.nonce_client +
+                        monitor.nonce_dp +
+                        monitor.premaster +
+                        monitor.decoupled_ID +
+                        monitor.seqNum_C2D_Rand +
+                        monitor.content_type + const.END_LINE +
+                        monitor.server_name )
+
                 if monitor.sentinel.startswith( const.SENTINEL_DEADBEEF ):
-                    client_data = (
-                            const.FULL_SENTINEL_DEADBEEF + monitor.nonce_client +
-                            monitor.nonce_dp + monitor.premaster + monitor.decoupled_ID +
-                            monitor.seqNum_C2D_Rand + monitor.content_type )
-                    return client_data
+                    return const.FULL_SENTINEL_DEADBEEF + tunnel_params
 
                 try:
-                    client_data = (
-                            monitor.sentinel + FlowMonitor.sentinels[ monitor.sentinel ] +
-                            monitor.nonce_client + monitor.nonce_dp + monitor.premaster +
-                            monitor.decoupled_ID + monitor.seqNum_C2D_Rand + monitor.content_type )
-                    return client_data
+                    return (monitor.sentinel +
+                            FlowMonitor.sentinels[monitor.sentinel] +
+                            tunnel_params)
+
                 except KeyError:
                     log_warn('sentinel does not exist')
                     return None
 
         log_warn("cm_http_callback: Could not find sentinel!")
+        return None
+
+    def cm_bittorrent_callback(self, src_addr):
+        """
+        The CT is asking for the sentinel for the new hijack
+        flow it has just received.  It tells us the src address
+        and port it saw, and we have to figure out what
+        flow that belongs to and return the sentinel
+        """
+        hijack_tuple = (socket.inet_aton(src_addr[0]), src_addr[1])
+
+        for monitor in self.flowtable.itervalues():
+
+            if (monitor.hijack and
+                monitor.hijack.hijack_tuple[:2] == hijack_tuple):
+
+                try:
+                    client_data = (monitor.sentinel_prefix +
+                                   monitor.sentinel_label +
+                                   monitor.DHexp)
+
+                    return client_data
+
+                except KeyError:
+                    print 'bittorrent sentinel does not exist'
+                    return None
+
+        print "cm_bittorent_callback: Could not find sentinel!"
         return None
 
     def cm_close_callback(self, src_addr):

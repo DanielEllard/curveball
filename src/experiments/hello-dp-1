@@ -22,4 +22,4 @@ CURVEBALL=$HOME/curveball
 export PYTHONPATH=$CURVEBALL/src/experiments/..//python/:$PYTHONPATH
 sudo /etc/init.d/danted stop ; sudo /etc/init.d/danted start
 echo decoyproxy -s
-cd $CURVEBALL/src/experiments/..//scripts ; sudo python decoyproxy.py -s
+cd $CURVEBALL/src/experiments/..//scripts ; sudo python cb-dp -s

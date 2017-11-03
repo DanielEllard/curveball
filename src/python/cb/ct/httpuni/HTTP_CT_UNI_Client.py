@@ -110,8 +110,7 @@ class DstProtocol(Protocol):
     """
     def __init__(self):
 
-        global allocated_sentinel
-        global use_crypto, ccp_port
+        global allocated_sentinel, use_crypto, ccp_port, addr
 
         self.src_factory = Factory()
         self.src_factory.protocol = SrcProtocol
@@ -134,7 +133,11 @@ class DstProtocol(Protocol):
         self.chaff_bytes = 0
         self.cov_recv = 0
         self.cov_bytes = 0
-        self.host = None
+
+        # Note that this is the host name if available, 
+        # otherwise the ip address
+        #
+        self.host_name = addr[0]
 
         self.state = const.STATE_0_UNI
 
@@ -197,7 +200,7 @@ class DstProtocol(Protocol):
         #
         req = http_util.create_http_req(self,
                 cipher_text, self.handshake_ID,
-                self.tunnel_tag.encode("hex"), addr)
+                self.tunnel_tag.encode("hex"), self.host_name)
 
         self.transport.write(req)
 
@@ -232,7 +235,7 @@ class DstProtocol(Protocol):
         #
         req = http_util.create_http_req(self,
                 cipher_text, self.handshake_ID,
-                self.tunnel_tag.encode("hex"), addr)
+                self.tunnel_tag.encode("hex"), self.host_name)
 
         self.transport.write(req)
 
@@ -300,14 +303,14 @@ class DstProtocol(Protocol):
         message) and sendChaffReqForCovertData() is for sending "larger"
         amounts of chaff (when we think that DP has data queued up to send).
         """
-        plain_text = const.UNI_CHAFF_URL_PATH
+        plain_text = const.HTTP_UNI_CHAFF_URL_PATH
         self.send_cipher_req(plain_text)
 
     def sendChaffReqForCovertData(self):
         """
         See sendChaffReq()
         """
-        plain_text = const.UNI_CHAFF_COVERT_DATA_URL_PATH
+        plain_text = const.HTTP_UNI_CHAFF_COVERT_DATA_URL_PATH
         self.send_cipher_req(plain_text)
         #time.sleep(0.5)
 
@@ -330,7 +333,7 @@ class DstProtocol(Protocol):
 
         req = http_util.create_http_req(self,
                 cipher_text, self.handshake_ID,
-                self.tunnel_tag.encode("hex"), addr)
+                self.tunnel_tag.encode("hex"), self.host_name)
 
         if self.state != const.STATE_0_UNI:
             self.sent_count += 1
@@ -340,22 +343,48 @@ class DstProtocol(Protocol):
         self.transport.write(req)
 
 
-    def checkForWelcome(self, resp, payload):
+    def checkForWelcome(self, resp, unzip_payload):
         """
         State 3:  Check for welcome
         """
 
-        plain_text = const.HTTPU_CURVEBALLHELLO
+        # Create mole decoder
+        #
+        if self.isFirst == True:
+            self.isFirst = False
+            self.http_mole_encoder = HttpMoleCryptoEncoder(
+                    self.host_name, self.sentinel_hex)
 
-        auth_plain_text = '%s%s%s' % (
-                self.encoder.digest(plain_text),
-                const.HTTPU_HASHSEP,
-                plain_text)
+            self.send_chaff.start(const.HTTP_SEND_CHAFF_INTERVAL)
 
-        cipher_text = self.rc4_handshake_d2c.update( auth_plain_text )
-        cipher_text = cipher_text.encode("hex")
+        [status, dec_resp, enc_resp
+                ] = self.http_mole_encoder.decode_response(resp, commit=True)
 
-        if resp.find(cipher_text) != -1 or payload.find(cipher_text) != -1:
+        # Because raw response may have zipped payload, we also try
+        # unzipped payload
+        #
+        if status is -1:
+            [status, dec_resp, enc_resp
+                    ] = self.http_mole_encoder.decode_response(unzip_payload, commit=True)
+
+        if status is -1:
+            print 'Error: no DR on path?'
+            try:
+                reactor.stop()
+            except:
+                # Eat the exception; we're already shutting down
+                return
+
+            return
+
+        if dec_resp != const.HTTPU_CURVEBALLHELLO:
+            print 'Error: no welcome string received'
+            try:
+                reactor.stop()
+            except:
+                print "HTTP_CT_UNI_CLIENT.dstConnectionFailed: reactor already stopped"
+
+        else:
             self.src_endpoint = endpoints.TCP4ServerEndpoint(
                     reactor, ccp_port)
             self.src_endpoint.listen(self.src_factory)
@@ -363,11 +392,8 @@ class DstProtocol(Protocol):
             # Transition to state 5, and prime the pump with chaff
             self.state = const.STATE_5_UNI
             self.sendChaffReqForCovertData()
-        else:
-            print 'Error: no welcome string received'
-            self.transport.loseConnection()
 
-    def ready(self, resp, payload):
+    def ready(self, resp, unzip_payload):
         """
         State 5:  Ready
 
@@ -379,16 +405,21 @@ class DstProtocol(Protocol):
         #
         if self.isFirst == True:
             self.isFirst = False
-            self.host = str( addr[0] )
             self.http_mole_encoder = HttpMoleCryptoEncoder(
-                    self.host, self.sentinel_hex)
+                    self.host_name, self.sentinel_hex)
 
-            self.send_chaff.start( const.SEND_CHAFF_INTERVAL )
+            self.send_chaff.start(const.HTTP_SEND_CHAFF_INTERVAL)
 
-        [status, dec_resp, enc_resp] = self.http_mole_encoder.decode_response( resp )
+        [status, dec_resp, enc_resp
+                ] = self.http_mole_encoder.decode_response(resp, commit=True)
 
+        # Because raw response may have zipped payload, we also try
+        # unzipped payload
+        #
         if status is -1:
-            [status, dec_payload] = self.http_mole_encoder.decode_response( payload )
+            [status, dec_payload, enc_resp
+                    ] = self.http_mole_encoder.decode_response(
+                            unzip_payload, commit=True)
 
         if status is -1:
             try:

@@ -73,47 +73,6 @@ HTTPFlowDetector::cast(const char *name)
 }
 
 void
-HTTPFlowDetector::push(int port, Packet *p)
-{
-    assert(p->has_network_header());
-    assert(p->ip_header()->ip_p == IP_PROTO_TCP);
-
-    // Non-first packet fragments are simply forwarded.
-    if (IP_ISFRAG(p->ip_header()) && !IP_FIRSTFRAG(p->ip_header())) {
-        output(1).push(p);
-        return;
-    }
-
-    assert(p->has_transport_header());
-
-    // server-side communication
-    if (port == 1) {
-        process_server_packet(p);
-        return;
-    }
-
-    // Non-HTTP packets are simply forwarded.
-    if (ntohs(p->tcp_header()->th_dport) != _port) {
-        output(1).push(p);
-        return;
-    }
-
-    if (syn_packet(p)) {
-        _flow_table.add_flow(p);
-        output(1).push(p);
-
-    } else {
-        process_non_syn_packet(p);
-    }
-}
-
-bool
-HTTPFlowDetector::syn_packet(Packet *p)
-{
-    return (p->tcp_header()->th_flags & TH_SYN);
-}
-
-void
 HTTPFlowDetector::process_non_syn_packet(Packet *p)
 {
     IPFlowID flow_key = IPFlowID(p);
@@ -125,7 +84,7 @@ HTTPFlowDetector::process_non_syn_packet(Packet *p)
 
     // If an entry exists in ACK state, a client ACK is expected.
     } else if (entry->state() == FLOW_STATE_ACK) {
-        process_client_ack_packet(p, entry);
+        process_client_ack(p, entry);
 
     // If an entry exists in SENTINEL state, an HTTP request is expected.
     } else if (entry->state() == FLOW_STATE_SENTINEL) {
@@ -143,25 +102,6 @@ HTTPFlowDetector::process_non_syn_packet(Packet *p)
         entry->set_active();
         output(0).push(p);
     }
-}
-
-void
-HTTPFlowDetector::process_client_ack_packet(Packet *p, FlowEntry *entry)
-{
-    const uint8_t *data = p->transport_header() +
-                          (p->tcp_header()->th_off << 2);
-    int nbytes = p->end_data() - data;
-
-    if ((p->tcp_header()->th_flags & TH_ACK) && (nbytes == 0)) {
-        entry->set_state(FLOW_STATE_SENTINEL);
-
-    } else {
-        click_chatter("HTTPFLowDetector::process_client_ack_packet: "
-                      "Invalid client ACK in TCP handshake.");
-        remove_flow(IPFlowID(p));
-    }
-
-    output(1).push(p);
 }
 
 void
@@ -392,8 +332,15 @@ bool
 HTTPFlowDetector::sentinel_packet(
     const IPFlowID &flow_key, const char *buf, int len)
 {
-    // Check string sentinel first, if one is configured.
-    if (_sentinel.length() > 0 && string_sentinel(flow_key, buf, len)) {
+    if (seen_flow(flow_key, buf, len)) {
+        click_chatter("HTTPFlowDetector::sentinel_packet: "
+                      "ignoring already seen flow");
+        return false;
+    }
+
+    if (string_sentinel(buf, len)) {
+        click_chatter("HTTPFlowDetector::sentinel_packet: "
+                      "packet contains valid sentinel");
         return true;
     }
 
@@ -404,45 +351,19 @@ HTTPFlowDetector::sentinel_packet(
     char hex_str[_sentinel_length];
     unhexlify(buf, hex_str, _sentinel_length);
 
-    if (seen_flow(flow_key, buf, len)) {
+    if (seen_flow(flow_key, hex_str, _sentinel_length)) {
         click_chatter("HTTPFlowDetector::sentinel_packet: "
                       "ignoring already seen flow");
         return false;
     }
 
-    if ((_sentinels == NULL) ||
-        (!_sentinels->member(hex_str, _sentinel_length))) {
-        // packet does not contain a valid Curveball sentinel
-        return false;
+    if (filter_sentinel(hex_str, _sentinel_length)) {
+        click_chatter("HTTPFlowDetector::sentinel_packet: "
+                      "packet contains valid sentinel");
+        return true;
     }
 
-    click_chatter("HTTPFlowDetector::sentinel_packet: "
-                  "Packet contains valid sentinel.");
-    return true;
-}
-
-bool
-HTTPFlowDetector::string_sentinel(
-    const IPFlowID &flow_key, const char *buf, int len)
-{
-    if (seen_flow(flow_key, buf, len)) {
-        click_chatter("HTTPFlowDetector::string_sentinel: "
-                      "ignoring already seen flow");
-        return false;
-    }
-
-    if (len < _sentinel.length()) {
-        return false;
-    }
-
-    if (String(buf, _sentinel.length()) != _sentinel) {
-        // packet does not contain valid Curveball sentinel
-        return false;
-    }
-
-    click_chatter("HTTPFlowDetector::string_sentinel: "
-                  "Packet contains a valid sentinel.");
-    return true;
+    return false;
 }
 
 

@@ -231,15 +231,16 @@ class LauncherClient(object):
         combinations.  Therefore the protocol determines the port.
         """
 
-        # client.py can get confused if it is executed from the wrong
-        # directory.  This shouldn't normally matter, but make sure
-        # that we use the correct directory.  This only works, of course,
-        # if the script we are running is in the correct directory!
+        # curveball-client can get confused if it is executed from the
+        # wrong directory.  This shouldn't normally matter, but make
+        # sure that we use the correct directory.  This only works, of
+        # course, if the script we are running is in the correct
+        # directory!
         #
         mydir = os.path.normpath(
                 os.path.abspath(os.path.dirname(sys.argv[0]) or '.'))
 
-        cmd = ('cd %s ; ./client.py ' % mydir)
+        cmd = ('cd %s ; ./curveball-client ' % mydir)
         cmd += ('--proxy %d ' % socks_port)
         cmd += ('--tunnel-port %d ' % tunnel_port)
 

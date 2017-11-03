@@ -60,7 +60,7 @@ class SentmanSelfServe(object):
     """
 
     def __init__(self, keystate=None, state_fname=None, lock_fname=None,
-            generate=False):
+            generate=False, do_mse=False):
 
         self.log = logging.getLogger('cb.sentman')
 
@@ -96,7 +96,7 @@ class SentmanSelfServe(object):
             # waste a perfectly good sentinel.
             #
             if generate:
-                self.sentinel = key_collection.generate()
+                self.sentinel = key_collection.generate(do_mse=do_mse)
 
             self.remaining = key_collection.remaining()
             self.epoch = key_collection.epoch()
@@ -121,7 +121,7 @@ class SentmanSelfServe(object):
         return os.path.join(state_dir, 'cbsmd-ss')
 
     @staticmethod
-    def generate(state_fname=None, lock_fname=None):
+    def generate(state_fname=None, lock_fname=None, do_mse=False):
         """
         Factory method to create a SentmanSelfServe instance
         and return (sentinel, epoch, remaining)
@@ -129,12 +129,15 @@ class SentmanSelfServe(object):
 
         selfserve = SentmanSelfServe(None,
                 state_fname=state_fname, lock_fname=lock_fname,
-                generate=True)
+                generate=True, do_mse=do_mse)
 
-        if selfserve.sentinel:
-            sentinel = binascii.hexlify(selfserve.sentinel)
-        else:
+        if not selfserve.sentinel:
             sentinel = None
+        elif do_mse:
+            (old_sentinel, dh_exp, dh_pub) = selfserve.sentinel
+            sentinel = (binascii.hexlify(old_sentinel), dh_exp, dh_pub)
+        else:
+            sentinel = binascii.hexlify(selfserve.sentinel)
 
         return (sentinel, selfserve.epoch, selfserve.remaining)
 
@@ -148,11 +151,15 @@ if __name__ == '__main__':
         _dummy = SentmanSelfServe(keystate, 'xxx', 'xxx.lck')
 
         print SentmanSelfServe.generate(state_fname='xxx',
-                lock_fname='xxx.lck')
+                lock_fname='xxx.lck', do_mse=True)
+
         print SentmanSelfServe.generate(state_fname='xxx',
                 lock_fname='xxx.lck')
         print SentmanSelfServe.generate(state_fname='xxx',
                 lock_fname='xxx.lck')
+        print SentmanSelfServe.generate(state_fname='xxx',
+                lock_fname='xxx.lck')
+
 
         return 0
 

@@ -121,13 +121,12 @@ install_tree:
 # (but still probably more than strictly necessary for only a client)
 #
 CLIENT_SCRIPTS = \
-	scripts/cb-tweet \
-	scripts/client.py \
-	scripts/curveball-darwin \
 	scripts/curveball-client \
-	scripts/client-key-config \
-	scripts/my-tcp4-conns \
-	scripts/pin-tcp4-route
+	scripts/curveball-darwin \
+	scripts/curveball-key-config \
+	scripts/curveball-tweet \
+	scripts/curveball-my-conns \
+	scripts/curveball-pin-route
 
 install_scripts:
 	cd python ; ../packaging/python_setup.py install \

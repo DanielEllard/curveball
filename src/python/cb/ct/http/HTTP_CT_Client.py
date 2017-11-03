@@ -54,11 +54,13 @@ class SrcProtocol(Protocol):
 
     def __init__(self):
         self.dst_p = None
+        self.host_name = None
 
     def connectionMade(self):
         self.dst_p = self.factory.dst_p
         self.dst_p.state = const.STATE_7
         self.dst_p.src_p = self
+        self.host_name = self.factory.host_name
 
     def connectionLost(self, x):
         self.dst_p.state = const.STATE_1
@@ -113,7 +115,9 @@ class SrcProtocol(Protocol):
         final_text = seqNum_C2D + auth_text + enc_text
 
         req = http_util.create_http_req(self,
-            final_text, self.dst_p.decoupled_ID, self.dst_p.tunnel_tag.encode("hex"), addr)
+            final_text, self.dst_p.decoupled_ID,
+            self.dst_p.tunnel_tag.encode("hex"),
+            self.host_name)
 
         # Send request on to decoy host
         #
@@ -134,9 +138,15 @@ class DstProtocol(Protocol):
         global allocated_sentinel
         global use_crypto, ccp_port
 
+        # Note that this is the host name if available,
+        # otherwise the ip address
+        #
+        self.host_name = addr[0]
+
         self.src_factory = Factory()
         self.src_factory.protocol = SrcProtocol
         self.src_factory.dst_p = self
+        self.src_factory.host_name = self.host_name
         self.buf = ''
 
         self.state = const.STATE_0
@@ -204,8 +214,11 @@ class DstProtocol(Protocol):
 
         # HTTP Request
         #
+        rand_url_len = random.randint(10, 40)
+        rand_url = cb_random.gen_rand_bytes(self, rand_url_len)
         req = http_util.create_http_req(self,
-                '', self.handshake_ID, self.tunnel_tag.encode("hex"), addr)
+                rand_url, self.handshake_ID, self.tunnel_tag.encode("hex"),
+                self.host_name)
         self.transport.write(req)
 
         # New state
@@ -223,7 +236,8 @@ class DstProtocol(Protocol):
         # HTTP Request
         #
         req = http_util.create_http_req(self,
-            '', self.handshake_ID, self.tunnel_tag.encode("hex"), addr)
+            '', self.handshake_ID, self.tunnel_tag.encode("hex"),
+            self.host_name)
         self.transport.write(req)
 
         # New state
@@ -261,8 +275,15 @@ class DstProtocol(Protocol):
             if resp is None:
                 break
 
-            if str(status) != "200":
-                print "Response status is not 200: %s" % str(status)
+            # We don't care whether the first response (which is received in
+            # STATE_1) is not 200, but we do care whether all subsequent
+            # responses are not 200. The first request/response are simply
+            # for determining the tunnel type, and so the response will not
+            # be rewritten. Because the first request contains a GET /RandomURL,
+            # it is very likely that the resulting request will not be 200
+            #
+            if str(status) != "200" and self.state != const.STATE_1:
+                print "Not in tunnel_type state and response status is not 200: %s" % str(status)
                 self.transport.loseConnection()
                 break
 
@@ -418,7 +439,8 @@ class DstProtocol(Protocol):
                 # C. SESSSIONID=Decoupled_ID
                 #
                 req = http_util.create_http_req(self,
-                    zip_text, self.decoupled_ID, self.tunnel_tag.encode("hex"), addr )
+                    zip_text, self.decoupled_ID, self.tunnel_tag.encode("hex"),
+                    self.host_name )
 
                 self.transport.write(req)
 

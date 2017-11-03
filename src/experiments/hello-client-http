@@ -71,5 +71,5 @@ cd $CURVEBALL/src/experiments/..//scripts ;
 echo Setting up key path for running on core
 keys="$HOME/curveball/build/auth/keys/keys_short"
 
-python client.py -w -x -k $keys -d ${decoy}:80 
+python curveball-client -w -x -k $keys -d ${decoy}:80 
 

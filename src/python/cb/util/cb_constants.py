@@ -146,11 +146,17 @@ MAX_SET_COOKIE_DOMAIN_LEN = 36
 """
 Tunnel type constants
 """
-UNKNOWN_TUNNEL = "tunnel is unknown"
-HTTP_BI_TUNNEL = "tunnel is bidirectional http"
-HTTP_UNI_TUNNEL = "tunnel is unidirectional http"
-CREATE_HTTP_BI_TUNNEL = "tunnel to create is bidirectional http"
-CREATE_HTTP_UNI_TUNNEL = "tunnel to create is unidirectional http"
+UNKNOWN_TUNNEL = "0: unknown tunnel"
+HTTP_BI_TUNNEL = "1: bidirectional http tunnel"
+HTTP_UNI_TUNNEL = "2: unidirectional http tunnel"
+TLS_BI_TUNNEL = "3: bidirectional tls tunnel"
+TLS_UNI_TUNNEL = "4: unidirectional tls tunnel"
+BITTORENT_BI_TUNNEL = "5: bidirectional bittorent tunnel"
+BITTORENT_UNI_TUNNEL = "6: unidirectional bittorent tunnel"
+CREATE_HTTP_BI_TUNNEL = "7: bidirectional http tunnel to create"
+CREATE_HTTP_UNI_TUNNEL = "8: unidirectional http tunnel to create"
+CREATE_TLS_BI_TUNNEL = "9: bidirectional tls tunnel to create"
+CREATE_TLS_UNI_TUNNEL = "10: unidirectional tls tunnel to create"
 
 """
 HTTP constants
@@ -165,10 +171,13 @@ URL_PADDING_BYTE_LEN = 0
 URL_PADDING_HEX_LEN = URL_PADDING_BYTE_LEN * 2
 
 MAX_CHAFF_RESP_RECEIVED = 5
-SEND_CHAFF_INTERVAL = 0.5
+HTTP_SEND_CHAFF_INTERVAL = 0.5
+TLS_SEND_CHAFF_INTERVAL = 0.0835
 
-UNI_CHAFF_URL_PATH = '0' * 256
-UNI_CHAFF_COVERT_DATA_URL_PATH = '0' * 768
+HTTP_UNI_CHAFF_URL_PATH = '0' * 256
+HTTP_UNI_CHAFF_COVERT_DATA_URL_PATH = '0' * 768
+TLS_UNI_CHAFF_URL_PATH = '0' * 256 * 5
+TLS_UNI_CHAFF_URL_PATH_LEN = len(TLS_UNI_CHAFF_URL_PATH)
 
 HTTPU_BYTE_HASHLEN = 8
 HTTPU_HEX_HASHLEN = 2 * HTTPU_BYTE_HASHLEN
@@ -183,6 +192,13 @@ TLSUNI_CURVEBALLHELLO = "WelcomeToCurveball"
 HTTP_UNI_CT_DP_PORT = 57777
 TLS_UNI_CT_DP_PORT = 57778
 
+"""
+Bittorent constants
+"""
+
+# It is on this port that the DR looks for bittorent traffic
+#
+BITTORRENT_SERVER_PORT = 6881
 
 """
 Length in bytes of the encrypted premaster secret for RSA

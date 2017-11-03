@@ -199,7 +199,7 @@ def net(ip, mask):
     return '.'.join(net)
 
 class WinTwistedTUN:
-    def __init__(self, callback, interface='tun0', ip=None, 
+    def __init__(self, callback, interface='tun0', ip_addr=None, 
                  netmask='255.255.255.0',
                  logname='cb.tcphijack',
                  tunowner=None):
@@ -231,10 +231,10 @@ class WinTwistedTUN:
                                       win32file.FILE_SHARE_READ)
         win32file.DeviceIoControl(handle, TAP_IOCTL_SET_MEDIA_STATUS, '\x01\x00\x00\x00', None)
 
-        network = net(ip, netmask)
+        network = net(ip_addr, netmask)
         
         args = ''
-        args += socket.inet_aton(ip)
+        args += socket.inet_aton(ip_addr)
         args += socket.inet_aton(network)
         args += socket.inet_aton(netmask)
         
@@ -244,7 +244,7 @@ class WinTwistedTUN:
 
         # Okay we have a Tun device up, now we need to set the IP
         
-        os.popen("netsh int ip set address \"%s\" static %s %s" % (interface, ip, netmask))
+        os.popen("netsh int ip set address \"%s\" static %s %s" % (interface, ip_addr, netmask))
         
         # Now we need to create the socket to communicate between the Tun reading thread
         # and Twisted
@@ -275,6 +275,6 @@ if __name__ == '__main__':
     def cb(pkt):
         print "got a packet! src = %s" % socket.inet_ntoa(pkt[12:16])
         
-    tun = WinTwistedTUN(cb, ip='192.168.99.88',  netmask='255.255.255.0')
+    tun = WinTwistedTUN(cb, ip_addr='192.168.99.88',  netmask='255.255.255.0')
     
     reactor.run()

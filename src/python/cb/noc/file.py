@@ -29,11 +29,13 @@ import time
 SENTINEL_SUFFIX = 'sent'
 SENTINEL_BF_SUFFIX = 'sbf'
 BDH_SUFFIX = 'bdh'
+DHEXP_SUFFIX = 'dhexp'
 
 MAX_GENERATION = 0xffffffff
 
 UTC_RE = '20[1-9][0-9][01][0-9][0-3][0-9]-[012][0-9][0-5][0-9]z'
 SENTINEL_RE = 'cb-' + UTC_RE + '\.' + SENTINEL_SUFFIX
+DHEXP_RE = 'cb-' + UTC_RE + '\.' + DHEXP_SUFFIX
 SENTINEL_BF_RE = 'cb-' + UTC_RE + '-g[0-9a-fA-F]{8}\.' + SENTINEL_BF_SUFFIX
 BDH_RE = 'cb-g[0-9a-fA-F]{8}\.' + BDH_SUFFIX
 
@@ -98,6 +100,14 @@ def sentinel_fname(utc=None):
     """
 
     return 'cb-%s.%s' % (date_label_str(utc), SENTINEL_SUFFIX)
+
+def dhexp_fname(utc=None):
+    """
+    Create the name of the file for the Diffie-Hellman exponents
+    for the given utc.  If utc is not given, use the current time.
+    """
+
+    return 'cb-%s.%s' % (date_label_str(utc), DHEXP_SUFFIX)
 
 def sentinel_bf_name(utc=None, generation=None):
     """

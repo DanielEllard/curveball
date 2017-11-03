@@ -120,11 +120,11 @@ install_auth:
 	cp -p test/auth/keys/master.km.orig $(BUILD_TREE)/auth/keys/
 
 CLIENT_SCRIPTS = \
-	 scripts/client.py \
-	 scripts/client-key-config \
-	 scripts/my-tcp4-conns \
-	 scripts/pin-tcp4-route \
-	 scripts/android-client.py	# android-specific
+	 scripts/curveball-client \
+	 scripts/curveball-key-config \
+	 scripts/curveball-my-conns \
+	 scripts/curveball-pin-route \
+	 scripts/curveball-android-client	# android-specific
 
 install_scripts:
 	cd python ; ../packaging/python_setup.py install \

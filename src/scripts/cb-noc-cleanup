@@ -90,6 +90,7 @@ def delete_outdated(directory):
 
     old_sent_fname = cb.noc.file.sentinel_fname(utc=utc_hour_old)
     old_bf_fname = cb.noc.file.sentinel_bf_name(utc=utc_hour_old)
+    old_dhexp_fname = cb.noc.file.dhexp_fname(utc=utc_hour_old)
 
     # First, remove up any files whose validity is in the past.
     #
@@ -112,6 +113,15 @@ def delete_outdated(directory):
 
         elif re.match(cb.noc.file.SENTINEL_BF_RE, fname):
             if fname < old_bf_fname:
+                path = os.path.join(directory, fname)
+                print 'Deleting %s' % path
+                try:
+                    os.unlink(path)
+                except BaseException, exc:
+                    print 'Error: %s' % str(exc)
+
+        elif re.match(cb.noc.file.DHEXP_RE, fname):
+            if fname < old_dhexp_fname:
                 path = os.path.join(directory, fname)
                 print 'Deleting %s' % path
                 try:

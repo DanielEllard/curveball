@@ -59,6 +59,7 @@ class DR2DPMessage1(object):
     OP_TYPE_REMOVE_FLOW = 5
     OP_TYPE_REASSIGN_FLOW = 6
     OP_TYPE_TLS_FLOW_ESTABLISHED = 7
+    OP_TYPE_ICMP = 8
     OP_TYPE_DH_BLACKLIST = 10
 
     # valid response codes
@@ -90,6 +91,7 @@ class DR2DPMessage1(object):
             OP_TYPE_REMOVE_FLOW : 'remove',
             OP_TYPE_REASSIGN_FLOW : 'reassign',
             OP_TYPE_TLS_FLOW_ESTABLISHED : 'tls',
+            OP_TYPE_ICMP : 'icmp',
             OP_TYPE_DH_BLACKLIST : 'blacklist'
         }
 
@@ -855,5 +857,135 @@ class DR2DPMessageTLSFlowEstablished(DR2DPMessage1):
         text += ' %s)' % self.protocol
         text += '\n'
         text += '                       %s'  % self.random_number
+
+        return text
+
+class DR2DPMessageICMP(DR2DPMessage1):
+
+    # The on-the-wire format:
+    #    4B  src_addr
+    #    4B  dst_addr
+    #    2B  src_port
+    #    2B  dst_port
+    #    1B  protocol
+    #    1B  flags
+    #    2B  padding
+    #        packet (variable length)
+    ICMP_HFORMAT = '!4s4sHHBBH'
+    ICMP_HLENGTH = struct.calcsize(ICMP_HFORMAT)
+
+    ICMP_FLAG_TO_CLIENT = 0x01
+
+    def __init__(self, src_addr, dst_addr,
+                       src_port, dst_port, protocol, flags, packet):
+
+        try:
+            super(DR2DPMessageICMP, self).__init__(
+                DR2DPMessage1.MESSAGE_TYPE_REQUEST,
+                DR2DPMessage1.OP_TYPE_ICMP)
+        except TypeError, ValueError:
+            raise
+
+        if type(src_port) != int:
+            raise TypeError('illegal src_port type (%s)' % (
+                            (str(type(src_port))),))
+
+        if type(dst_port) != int:
+            raise TypeError('illegal dst_port type (%s)' % (
+                            (str(type(dst_port))),))
+
+        if type(protocol) != int:
+            raise TypeError('illegal protocol type (%s)' % (
+                            (str(type(protocol))),))
+
+        if src_port <= 0 or src_port > 65535:
+            raise ValueError('invalid src_port value (%d)' % (src_port,))
+
+        if dst_port <= 0 or dst_port > 65535:
+            raise ValueError('invalid dst_port value (%d)' % (dst_port,))
+
+        if protocol < 0 or protocol > 15:
+            raise ValueError('invalid protocol value (%d)' % (protocol,))
+
+        self.src_addr = src_addr
+        self.dst_addr = dst_addr
+        self.src_port = src_port
+        self.dst_port = dst_port
+        self.protocol = protocol
+        self.flags = flags
+        self.packet = packet
+        DEBUG and debug("ICMP: %s" % str(self))
+
+    def get_tuple(self):
+        return (self.src_addr, self.src_port, self.dst_addr, self.dst_port)
+
+    def is_reverse(self):
+        return (self.flags & DR2DPMessageICMP.ICMP_FLAG_TO_CLIENT)
+
+    def get_pkt(self):
+        return self.packet
+
+    def pack(self):
+        """
+        Convert to wire format.
+        """
+
+        msg = struct.pack(DR2DPMessageICMP.ICMP_HFORMAT,
+                          self.src_addr, self.dst_addr,
+                          self.src_port, self.dst_port, self.protocol,
+                          self.flags, 0)
+        msg += self.packet
+
+        DEBUG and debug("ICMP: pack %s" % str(self))
+        return super(DR2DPMessageICMP, self).pack(msg)
+
+    def unpack(self):
+        """
+        Parse data buffer.
+        """
+
+        if len(self.data) < DR2DPMessageICMP.ICMP_HLENGTH:
+            raise ValueError('insufficient data buffer for icmp message')
+            return
+
+        header_buf = self.data[:DR2DPMessageICMP.ICMP_HLENGTH]
+        (src_addr, dst_addr,
+         src_port, dst_port,
+         protocol, flags, pad) = struct.unpack(
+                                     DR2DPMessageICMP.ICMP_HFORMAT, header_buf)
+
+        if src_port <= 0 or src_port > 65535:
+            raise ValueError('invalid src_port value (%d)' % (src_port,))
+
+        if dst_port <= 0 or dst_port > 65535:
+            raise ValueError('invalid dst_port value (%d)' % (dst_port,))
+
+        if protocol < 0 or protocol > 15:
+            raise ValueError('invalid protocol value (%d)' % (protocol,))
+
+        self.src_addr = src_addr
+        self.dst_addr = dst_addr
+        self.src_port = src_port
+        self.dst_port = dst_port
+        self.protocol = protocol
+        self.flags = flags
+        self.packet = self.data[DR2DPMessageICMP.ICMP_HLENGTH:]
+        DEBUG and debug("ICMP: unpack %s" % str(self))
+
+    def __str__(self):
+        """
+        Produce string format of message content.
+        """
+
+        text = super(DR2DPMessageICMP, self).__str__()
+        text += '\n'
+        text += '    ICMP '
+        text += '(%s,' % self.src_addr
+        text += ' %s,' % self.dst_addr
+        text += ' %s,' % self.src_port
+        text += ' %s,' % self.dst_port
+        text += ' %s)' % self.protocol
+        text += ' flags %s' % hex(self.flags)
+        text += ' %s' % self.packet
 
         return text

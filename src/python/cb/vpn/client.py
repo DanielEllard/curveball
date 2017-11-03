@@ -77,11 +77,6 @@ class VpnClientState(object):
     #
     NO_COVERT_DNS = False
 
-    # FIXME: this should be discovered from the server, not assumed to be
-    # constant!
-    #
-    GW_ADDR = '10.255.0.1'
-
 
 class VpnClient(object):
     """
@@ -382,7 +377,7 @@ class WinVpnClient(VpnClient):
         os.system(route_cmd)
 
         route_cmd = 'route add %s MASK 255.255.255.255 %s' % (
-		addr, VpnClientState.GW_ADDR)
+		addr, self.tun_ip)
         # print "subnet route:  " + route_cmd
         # FIXME: don't use os.system
         os.system(route_cmd)
@@ -422,7 +417,7 @@ class WinVpnClient(VpnClient):
             os.system(route_cmd)
 
             route_cmd = 'route add %s MASK %s %s' % (
-                    subnet_prefix, subnet_mask, VpnClientState.GW_ADDR)
+                    subnet_prefix, subnet_mask, self.tun_ip)
             # print "subnet route:  " + route_cmd
             # FIXME: don't use os.system
             os.system(route_cmd)
@@ -433,12 +428,12 @@ class WinVpnClient(VpnClient):
             # os.system(route_cmd)
 
             route_cmd = 'route add 0.0.0.0 MASK 128.0.0.0 %s' % (
-                    VpnClientState.GW_ADDR,)
+                    self.tun_ip,)
 	    print 'route_cmd: [%s]' % (route_cmd,)
             os.system(route_cmd)
 
             route_cmd = 'route add 128.0.0.0 MASK 128.0.0.0 %s' % (
-                    VpnClientState.GW_ADDR,)
+                    self.tun_ip,)
 	    print 'route_cmd: [%s]' % (route_cmd,)
             os.system(route_cmd)
 	    print 'default route set'

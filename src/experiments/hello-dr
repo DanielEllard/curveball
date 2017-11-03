@@ -33,7 +33,7 @@ dr(){
 case $# in 
 2) 
         cd $CURVEBALL/src/experiments/..//scripts ; 
-        sudo python  dr.py -d ${1}:4001 --decoyname ${2}
+        sudo python  cb-dr -d ${1}:4001 --decoyname ${2}
         ;;
 *)
         # Handle some default cases

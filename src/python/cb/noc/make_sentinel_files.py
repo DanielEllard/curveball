@@ -36,6 +36,16 @@ def sentinel_file_name(utc, out_dir):
     sent_fname = cb.noc.file.sentinel_fname(utc)
 
     return os.path.join(out_dir, sent_fname)
+
+def dhexp_file_name(utc, out_dir):
+    """
+    Return the name of the sentinel<-->Diffie-Hellman exponent 
+    map for the given utc, in the given out_dir
+    """
+
+    fname = cb.noc.file.dhexp_fname(utc)
+
+    return os.path.join(out_dir, fname)
         
 def make_sentbf_file(utc, out_dir, nhours=1, curr_sbf_fname=None,
         safe=False):
@@ -110,10 +120,15 @@ def make_sentbf_file(utc, out_dir, nhours=1, curr_sbf_fname=None,
 
     return 0
 
-def make_sent_file(utc, out_dir, key_file, num_sentinels, safe=False):
+def make_sent_file(utc, out_dir, key_file, num_sentinels, safe=False,
+        do_mse=True):
     """
     Create a sentinel file in out_dir for the given
     key_file and num_sentinels for the given utc.
+
+    If do_mse is non-False, then add the MSE-mode sentinels to the
+    file in addition to the ordinary TLS-mode sentinels (used by
+    the TLS- and HTTP-based protocols).
     """
 
     sent_pname = sentinel_file_name(utc, out_dir)
@@ -128,17 +143,40 @@ def make_sent_file(utc, out_dir, key_file, num_sentinels, safe=False):
 
     fout = open(sent_tempname, "w+")
 
+    if do_mse:
+        dhexp_pname = dhexp_file_name(utc, out_dir)
+
+        if safe and os.path.isfile(dhexp_pname):
+            print "Skipping (%s)" % (dhexp_pname,)
+            return
+
+        dhexp_out = open(dhexp_pname, "w+")
+
     time_str = gen_sentinels.create_date_hmac_str(utc)
 
     sentinels = list()
 
     for line in open(key_file, 'r'):
         key = line.split()
+
         for i in range (0, num_sentinels):
             sentinel = gen_sentinels.create_sentinel(key[1], i, time_str)
             fout.write(sentinel + '\n')
 
+            # If we're doing an MSE sentinel for this key, do
+            # it here.
+            #
+            if do_mse:
+                (sentinel, dh_exp, dh_pub) = gen_sentinels.create_mse_sentinel(
+                        key[1], i, time_str)
+                fout.write(sentinel + '\n')
+
+                dhexp_out.write('%s %s\n' % (sentinel[0:16], dh_exp))
+
     fout.close()
+
+    if do_mse:
+        dhexp_out.close()
 
     # allow this to use as much as 30% of the physical memory.
     # TODO: there should be a better way to throttle the memory use

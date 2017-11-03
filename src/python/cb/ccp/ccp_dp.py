@@ -211,9 +211,9 @@ class SrcProtocol(Protocol):
 
                 # Drop chaff.
                 #
-                if msg.get_conn_id() == CCPMessage.CHAFF_CONN_ID:
-                    #print 'Dropping chaff len %d' % len(msg.get_data())
-                    return
+                if connid == CCPMessage.CHAFF_CONN_ID:
+                    # print 'Dropping chaff len %d' % len(msg.get_data())
+                    continue
 
                 data = msg.get_data()
                 

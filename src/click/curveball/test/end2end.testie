@@ -93,7 +93,7 @@ DriverManager(
 )
 
 %expect stderr
-TLSFlowDetector::string_sentinel: Packet contains valid sentinel.
+SentinelDetector::sentinel_packet: packet contains valid sentinel
 DecoderTest::parse: redirect message received
 DecoderTest::parse: forward message received
 DecoderTest::parse: forward message received

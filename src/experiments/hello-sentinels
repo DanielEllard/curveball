@@ -31,7 +31,7 @@ mkdir /tmp/dp/sentinels
 
 $CURVEBALL/src/scripts/cb-noc-create-sentinel-files \
         -o /tmp/dr/bloomfilters \
-        --sentinels=128 --hours=24 \
+        --sentinels=128 --hours=12 \
         ../../build/auth/keys/keys_short
 
 cp -r /tmp/dr/bloomfilters/*sent /tmp/dp/sentinels

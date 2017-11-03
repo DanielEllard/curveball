@@ -52,7 +52,7 @@ DECOY=decoy
 TSIZE=4000000
 ITERS="0 1 2 3 4"
 
-CLIENT=client.py
+CLIENT=curveball-client
 CLIENTPATH="/opt/curveball/scripts/${CLIENT}"
 
 CURL=/usr/bin/curl

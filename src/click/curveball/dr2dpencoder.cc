@@ -180,6 +180,49 @@ DR2DPEncoder::tls_established(const IPFlowID &flow, const String &random)
 }
 
 void
+DR2DPEncoder::redirect_icmp_packet(
+    const IPFlowID &flow, Packet *pkt, bool to_client)
+{
+    int dr2dp_pkt_len = sizeof(dr2dp_msg) + sizeof(dr2dp_icmp_msg);
+
+    WritablePacket *p = WritablePacket::make(dr2dp_pkt_len);
+    if (!p) {
+        pkt->kill();
+        click_chatter("DR2DPEncoder::redirect_icmp_packet: "
+                      "failed to allocate packet");
+        return;
+    }
+
+    dr2dp_msg *msg = reinterpret_cast<dr2dp_msg *>(p->data());
+    msg->protocol = DR2DP_PROTOCOL_VERSION;
+    msg->session_type = 0;
+    msg->message_type = DR2DP_MSG_TYPE_REQUEST;
+    msg->operation_type = DR2DP_OP_TYPE_ICMP;
+    msg->response_code = 0;
+    msg->xid = 0;
+    msg->data_length = htonq((p->length() - sizeof(dr2dp_msg)) + pkt->length());
+
+    dr2dp_icmp_msg *icmp_msg =
+        reinterpret_cast<dr2dp_icmp_msg *>(p->data() + sizeof(dr2dp_msg));
+
+    memset(icmp_msg, 0, sizeof(dr2dp_icmp_msg));
+    icmp_msg->src_addr = flow.saddr().addr();
+    icmp_msg->dst_addr = flow.daddr().addr();
+    icmp_msg->src_port = flow.sport();
+    icmp_msg->dst_port = flow.dport();
+    icmp_msg->protocol = IP_PROTO_TCP;
+    if (to_client) {
+        icmp_msg->flags |= DR2DP_ICMP_FLAG_TO_CLIENT;
+    }
+
+    click_chatter("DR2DPEncoder::redirect_icmp_packet: "
+                  "redirecting icmp packet");
+
+    output(0).push(p);
+    output(0).push(pkt);
+}
+
+void
 DR2DPEncoder::run_timer(Timer *timer)
 {
     assert(timer = &_ping_timer);

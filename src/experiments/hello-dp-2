@@ -57,5 +57,5 @@ echo decoyproxy -t
 printenv
 
 # removed sudo because it revmoves the environment
-cd $CURVEBALL/src/experiments/..//scripts ; python decoyproxy.py -t
+cd $CURVEBALL/src/experiments/..//scripts ; python cb-dp -t
 

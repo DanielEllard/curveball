@@ -42,7 +42,7 @@
   #include <sys/select.h>
 */
 /* It would be nice if there was a __POSIX__ define we could use */
-#ifdef __unix__||__APPLE__
+#if __unix__||__APPLE__
 #include <libgen.h> /* for basename */
 #else
 #include <string.h> /* for strrchr */
@@ -96,34 +96,46 @@ int exit_on_no_dr = PR_TRUE;
 #define DEBUGPR  fprintf
 static int CB_DEBUG = 0;
 
-static char *REQUEST_TEMPLATE_BI =
-		"GET / HTTP/1.1\r\nUser-Agent:"
-		"EKRClient\r\nHost: %s:%d\r\n\r\n";
+#define HTTP_HEADER \
+	"User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:33.0) " \
+	"Gecko/20100101 Firefox/33.0\r\n" \
+	"Accept: text/html\r\n" \
+	"Accept-Language: en-US,en;q=0.5\r\n" \
+	"Accept-Encoding: \r\n" \
+	"Connection: keep-alive\r\n\r\n"
 
-static char *REQUEST_TEMPLATE_UNI =
-		"GET /ConnectToCurveballaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nUser-Agent:"
-		"EKRClient\r\nHost: %s:%d\r\n\r\n";
+#define REQUEST_TEMPLATE_BI \
+	"GET / HTTP/1.1\r\nHost: %s\r\n" \
+	HTTP_HEADER
 
-#define HTTPS_PORT 443
+#define REQUEST_SUFFIX_TEMPLATE \
+	" HTTP/1.1\r\nHost: %s\r\n" \
+	HTTP_HEADER
+
+#define REQUEST_TEMPLATE_UNI \
+	"GET /ConnectToCurveballaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa " \
+	REQUEST_SUFFIX_TEMPLATE
+
+#define HTTPS_PORT (443)
 #define DEFAULT_CLIENT_AGENT_PORT	(4435)
 
 static int curveball_agent_port = DEFAULT_CLIENT_AGENT_PORT;
 
-static char* progname = "";
+static char *progname = "";
 
 int sentinel_seed = 0;
 
@@ -131,10 +143,10 @@ int sentinel_seed = 0;
  * takes precedence over this one.
  */
 PRInt32 cipher_set[] = {
-    #ifdef CURVEBALL_LIMIT_CIPHER_SUITES
+#ifdef CURVEBALL_LIMIT_CIPHER_SUITES
     TLS_RSA_WITH_AES_256_CBC_SHA,
     TLS_RSA_WITH_AES_128_CBC_SHA,
-    #else /* don't limit cipher suites */
+#else /* don't limit cipher suites */
     SSL_RSA_WITH_3DES_EDE_CBC_SHA,
     SSL_RSA_WITH_RC4_128_SHA,
 
@@ -179,7 +191,7 @@ PRInt32 cipher_set[] = {
     TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
     SSL_RSA_FIPS_WITH_3DES_EDE_CBC_SHA,
     SSL_RSA_WITH_3DES_EDE_CBC_SHA
-    #endif /* LIMIT CIPHER SUITES */
+#endif /* LIMIT CIPHER SUITES */
 };
 
 unsigned char deadbeef[] = {
@@ -238,20 +250,26 @@ SECItem aes_iv = {
  *************************************************************************
  */
 static void
-DEBUG_asciify(int flag, char* prefix, unsigned char* buf, int len)
+DEBUG_asciify(int flag, char *prefix, unsigned char *buf, int len)
 {
     int i;
 
-    if(CB_DEBUG == 0) return;
+    if (CB_DEBUG == 0) {
+	return;
+    }
 
     printf("\n%s: (len: %d)", prefix, len);
-    for(i = 0; i < len && i < 80; i++) {
-        if(isalpha(buf[i]))
+    for (i = 0; i < len && i < 80; i++) {
+        if (isalpha(buf[i])) {
             printf(" %d", buf[i]);
-        else
+	}
+        else {
             printf("%02x", buf[i]);
+	}
     }
-    if(len >= 80) printf("...");
+    if (len >= 80) {
+	printf("...");
+    }
     printf("\n");
     fflush(stdout);
 }
@@ -265,10 +283,11 @@ DEBUG_asciify(int flag, char* prefix, unsigned char* buf, int len)
  *
  *************************************************************************
  */
-void tunnel(PRFileDesc* client_sock, PRFileDesc* ssl) {
+void tunnel(PRFileDesc *client_sock, PRFileDesc *ssl)
+{
     int alive = 1;
     int anyerr = PR_POLL_ERR | PR_POLL_EXCEPT;
-	int ii, jj;
+    int ii, jj;
 
     while (alive) {
         int psel;
@@ -291,22 +310,20 @@ void tunnel(PRFileDesc* client_sock, PRFileDesc* ssl) {
             char buf[4096];
             char err[128];
 
-			/* Check for errors, if so, turn off alive */
-			if (alive && (pds[0].out_flags & anyerr)) {
-				PR_snprintf(err, sizeof(err),
-							"%s: error condition on ssl;",
-							progname);
-				alive = 0;
-				break;
-			}
+	    /* Check for errors, if so, turn off alive */
+	    if (alive && (pds[0].out_flags & anyerr)) {
+		PR_snprintf(err, sizeof(err),
+			"%s: error condition on ssl;", progname);
+		alive = 0;
+		break;
+	    }
 
-			if (alive && (pds[1].out_flags & anyerr)) {
-				PR_snprintf(err, sizeof(err),
-							"%s: error condition on client;",
-							progname);
-				alive = 0;
-				break;
-			}
+	    if (alive && (pds[1].out_flags & anyerr)) {
+		PR_snprintf(err, sizeof(err),
+			"%s: error condition on client;", progname);
+		alive = 0;
+		break;
+	    }
 
             /* Don't even try this if we've just turned off "alive" */
             if (alive && (pds[0].out_flags & PR_POLL_READ)) {
@@ -326,24 +343,24 @@ void tunnel(PRFileDesc* client_sock, PRFileDesc* ssl) {
             	*/
 
             	if (nread < 0) {
-            		PR_snprintf(err, sizeof(err), "%s: SSL read error;",
-            				progname);
-            		PR_error(err);
-            		alive = 0;
+		    PR_snprintf(err, sizeof(err), "%s: SSL read error;",
+			    progname);
+		    PR_error(err);
+		    alive = 0;
 
             		/* Write to client */
             	} else if (nread > 0) {
-            		if (PR_Write(client_sock, buf, nread) < 0) {
-            			PR_snprintf(err, sizeof(err), "%s: SSL write error",
-            					progname);
-            			PR_error(err);
-            			alive = 0;
-            		}
+		    if (PR_Write(client_sock, buf, nread) < 0) {
+			PR_snprintf(err, sizeof(err), "%s: SSL write error",
+				progname);
+			PR_error(err);
+			alive = 0;
+		    }
 
             		/* DP is gone */
             	} else if (nread == 0) {
-            		fprintf(stderr, "DP gone\n");
-            		alive = 0;
+		    fprintf(stderr, "DP gone\n");
+		    alive = 0;
             	}
             }
 
@@ -366,28 +383,29 @@ void tunnel(PRFileDesc* client_sock, PRFileDesc* ssl) {
             	 */
 
             	if (nread < 0) {
-            		PR_snprintf(err, sizeof(err),
-            				"%s: Error reading from client;", progname);
-            		PR_error(err);
-            		alive = 0;
+		    PR_snprintf(err, sizeof(err),
+			    "%s: Error reading from client;", progname);
+		    PR_error(err);
+		    alive = 0;
 
             		/* Write to ssl */
             	} else if (nread > 0) {
-            		if (PR_Write(ssl, buf, nread) < 0) {
-            			PR_snprintf(err, sizeof(err), "%s: SSL write error",
-            					progname);
-            			PR_error(err);
-            			alive = 0;
-            		}
+		    if (PR_Write(ssl, buf, nread) < 0) {
+			PR_snprintf(err, sizeof(err),
+				"%s: SSL write error", progname);
+			PR_error(err);
+			alive = 0;
+		    }
 
             		/* tunnel client is gone */
             	} else if (nread == 0) {
-            		fprintf(stderr, "tunnel client gone\n");
-            		alive = 0;
+		    fprintf(stderr, "tunnel client gone\n");
+		    alive = 0;
             	}
             }
         }
     }
+
     /* this might fail; client_sock might already be gone */
     PR_Shutdown(client_sock, PR_SHUTDOWN_BOTH);
     PR_Close(client_sock);
@@ -402,11 +420,13 @@ void tunnel(PRFileDesc* client_sock, PRFileDesc* ssl) {
  *
  *************************************************************************
  */
-static void curveball_tunnel_server(PRFileDesc* ssl) {
+static void curveball_tunnel_server(PRFileDesc* ssl)
+{
     PRSocketOptionData sockopt;
-    PRFileDesc * client_sock;
-    PRFileDesc * listen_sock = PR_NewTCPSocket();
-    PRNetAddr any_address, client_address;
+    PRFileDesc *client_sock;
+    PRFileDesc *listen_sock = PR_NewTCPSocket();
+    PRNetAddr any_address;
+    PRNetAddr client_address;
     PRStatus status;
 
     PR_InitializeNetAddr(PR_IpAddrAny, curveball_agent_port, &any_address);
@@ -425,15 +445,17 @@ static void curveball_tunnel_server(PRFileDesc* ssl) {
         berr_exit("Cannot listen to the local endpoint socket");
     }
 
-    client_sock = PR_Accept(listen_sock, &client_address, PR_INTERVAL_NO_TIMEOUT);
+    client_sock = PR_Accept(listen_sock, &client_address,
+	    PR_INTERVAL_NO_TIMEOUT);
     if (client_sock == NULL) {
         berr_exit("PR_Accept failed; exiting");
     }
     /* if this weren't single-streamed, we would fork here, but the
      * client-agent serves only one customer at a time
      */
-    if(CB_DEBUG)
+    if (CB_DEBUG) {
         fprintf(stderr, "Accepting tunnel connection\n");
+    }
 
     tunnel(client_sock, ssl);
 }
@@ -446,54 +468,58 @@ static void curveball_tunnel_server(PRFileDesc* ssl) {
  *
  *************************************************************************
  */
-static int http_request(PRFileDesc* ssl, char* hostname, PRUint16 port,
-		char* request_template, unsigned char* stencil_key)
+static int http_request(PRFileDesc *ssl, char *hostname, PRUint16 port,
+		char *request_template, unsigned char *stencil_key)
 {
     int curveball_mode = 0;
-    char request[BUFSIZZ];
-    char buf[BUFSIZZ];
+    char request[2 * BUFSIZZ];
+    char buf[2 * BUFSIZZ];
     int r;
     int len, request_len;
-	int i;
+    int i;
 
-	/* Now construct our HTTP request */
-	request_len = PL_strlen(request_template) + PL_strlen(hostname) + 6;
-	if (request_len > sizeof(request)) {
-		err_exit("Request length too long");
-	}
-	PR_snprintf(request, request_len, request_template, hostname, port);
+    /* Now construct our HTTP request */
+    request_len = PL_strlen(request_template) + PL_strlen(hostname) + 6;
+    if (request_len > sizeof(request)) {
+	err_exit("Request length too long");
+    }
+    PR_snprintf(request, request_len, request_template, hostname);
 
     /* Find the exact request_len */
     request_len = PL_strlen(request);
 
-	if (CURVEBALL_TUNNEL_TYPE == CURVEBALL_BIDIRECTIONAL_TUNNEL) {
+    if (CURVEBALL_TUNNEL_TYPE == CURVEBALL_BIDIRECTIONAL_TUNNEL) {
 
-		if (PR_Write(ssl, request, request_len) < 0) {
-			const PRErrorCode err = PR_GetError();
-			fprintf(stderr, "PR_Write error %d: %s\n",
-					err, PR_ErrorToName(err));
-		    berr_exit("Failed to send initial request");
-		}
-	} else {
-
-        /* In unidirectional we won't know there's a DR in the
-         * path until AFTER we send the stencil.  We send
-		 * the stencil in the hope that a DR will answer.
-		 *
-		 * The enc_key should be part of the sentinel_label
-		 * that has not been sent in the clear (preferably
-		 * not used at all).
-		 */
-		cb_stencil_send(ssl, NULL, stencil_key, 2*CB_STENCIL_KEY_BYTES);
-		for (i=1; i<3; i++) {
-			if (PR_Write(ssl, request, request_len) < 0) {
-				const PRErrorCode err = PR_GetError();
-				fprintf(stderr, "PR_Write error %d: %s\n",
-						err, PR_ErrorToName(err));
-				berr_exit("Failed to send initial request");
-			}
-		}
+	if (PR_Write(ssl, request, request_len) < 0) {
+	    const PRErrorCode err = PR_GetError();
+	    fprintf(stderr, "PR_Write error %d: %s\n",
+		    err, PR_ErrorToName(err));
+	    berr_exit("Failed to send initial request");
 	}
+    }
+    else {
+	unsigned int request_suffix_len =
+		strlen(REQUEST_SUFFIX_TEMPLATE) + strlen(hostname) + 10;
+	unsigned char *request_suffix = malloc(request_suffix_len);
+
+	if (request_suffix == NULL) {
+	    berr_exit("Failed to allocate request string");
+	}
+	PR_snprintf(request_suffix, request_suffix_len,
+		REQUEST_SUFFIX_TEMPLATE, hostname);
+
+	/* In unidirectional we won't know there's a DR in the
+	 * path until AFTER we send the stencil.  We send
+	 * the stencil in the hope that a DR will answer.
+	 *
+	 * The enc_key should be part of the sentinel_label
+	 * that has not been sent in the clear (preferably
+	 * not used at all).
+	 */
+	cb_stencil_send(ssl, NULL,
+		stencil_key, 2 * CB_STENCIL_KEY_BYTES,
+		request_suffix);
+    }
 
     /* Now read the server's response, assuming
        that it's terminated by a close */
@@ -512,19 +538,28 @@ static int http_request(PRFileDesc* ssl, char* hostname, PRUint16 port,
             if (curveball_mode == 0) {
                 curveball_mode = 1;
             }
-
+            if (CURVEBALL_TUNNEL_TYPE == CURVEBALL_UNIDIRECTIONAL_TUNNEL) {
+                if (PR_Write(ssl, request, request_len) < 0) {
+                    const PRErrorCode err = PR_GetError();
+                    fprintf(stderr, "PR_Write error %d: %s\n",
+                            err, PR_ErrorToName(err));
+                    berr_exit("Failed to send initial request");
+                }
+            }
             /* We found a DP, that first message was just the DP
 			   saying hello, let's wait for the welcome message */
             curveball_tunnel_server(ssl);
             return -1;
 
-        } else if (exit_on_no_dr) {
+        }
+	else if (exit_on_no_dr) {
         	printf("No DR on path\n");
         	exit(4);
         }
 
-        if (r < 0)
+        if (r < 0) {
             berr_exit("SSL read problem");
+	}
         else if (r > 0) {
             len = r;
             fwrite(buf, 1, len, stdout);
@@ -541,9 +576,7 @@ static int http_request(PRFileDesc* ssl, char* hostname, PRUint16 port,
  *
  *************************************************************************
  */
-char* get_password(PK11SlotInfo* slot,
-                   PRBool retry,
-                   void* arg)
+char *get_password(PK11SlotInfo *slot, PRBool retry, void *arg)
 {
     DEBUGPR(stderr, "get_password returning \"curveball\"\n");
     return "curveball";
@@ -561,13 +594,14 @@ char* get_password(PK11SlotInfo* slot,
  *************************************************************************
  */
 #ifndef SERVER_AUTH_BUG_FIXED
-SECStatus ApproveCertificate(void* arg, PRFileDesc* fd, PRBool checkSig,
-		PRBool isServer) {
-	if (CB_DEBUG) {
-		DEBUGPR(stderr, "%s: skipping cert check, just saying 'Approved'\n",
-				progname);
-	}
-	return SECSuccess;
+SECStatus ApproveCertificate(void *arg, PRFileDesc *fd, PRBool checkSig,
+	PRBool isServer)
+{
+    if (CB_DEBUG) {
+	DEBUGPR(stderr, "%s: skipping cert check, just saying 'Approved'\n",
+		progname);
+    }
+    return SECSuccess;
 }
 #endif /* SERVER_AUTH_BUG_FIXED */
 
@@ -601,14 +635,13 @@ SECStatus BadCertHandler(void *arg, PRFileDesc *fd)
     return SECFailure;
 }
 
-
 /*
  *************************************************************************
  * FUNCTION: usage_exit
  * DESCRIPTION:
  *************************************************************************
  */
-void usage_exit(char* msg)
+void usage_exit(char *msg)
 {
     fprintf(stderr, "%s: %s\n", progname, msg);
     fprintf(stderr, "usage: %s -h host -p port [-s sentinel] [-d] [options]\n",
@@ -638,7 +671,6 @@ void usage_exit(char* msg)
     exit(1);
 }
 
-
 /*
  *************************************************************************
  * FUNCTION: hex2binary
@@ -646,7 +678,7 @@ void usage_exit(char* msg)
  *************************************************************************
  */
 static void hex2binary(unsigned char *out_binary, unsigned char *in_hex,
-                       size_t len)
+	size_t len)
 {
     size_t i;
     char buf[3];
@@ -669,13 +701,13 @@ static void hex2binary(unsigned char *out_binary, unsigned char *in_hex,
  *
  *************************************************************************
  */
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     extern char *optarg;
     SECStatus secstat;
     PRStatus r;
-    char* certdb = "certdb";
-    PRFileDesc* sock;
+    char *certdb = "certdb";
+    PRFileDesc *sock;
     PRNetAddr na_server;
     PRHostEnt hp;
     PRUint16 port = HTTPS_PORT;
@@ -688,106 +720,115 @@ int main(int argc, char** argv)
     char *sentinel_hex = NULL;
     unsigned char sentinel[CB_SENTINEL_BYTES];
     unsigned char sentinel_label[CB_SENTINEL_LABEL_BYTES];
-    unsigned char stencil_key[2*2*CB_STENCIL_KEY_BYTES];
+    unsigned char stencil_key[2 * 2 * CB_STENCIL_KEY_BYTES];
     SECStatus rv;
+
+    /* Assume bidirectional request by default */
+    char *request_template = REQUEST_TEMPLATE_BI;
 
     progname = basename(argv[0]);
 
-	/* Assume bidirectional request by default */
-	char *request_template = REQUEST_TEMPLATE_BI;
-
     {
-        char* dbgenv = PR_GetEnv("DEBUG_CURVEBALL");
-        if(dbgenv) {
+        char *dbgenv = PR_GetEnv("DEBUG_CURVEBALL");
+        if (dbgenv) {
             CB_DEBUG = atoi(dbgenv);
         }
     }
     {
-        char* deadenv = PR_GetEnv("USE_DEADBEEF");
-        if(deadenv) {
+        char *deadenv = PR_GetEnv("USE_DEADBEEF");
+        if (deadenv) {
             use_deadbeef = atoi(deadenv);
         }
     }
     {
-        char* curveball_enable_envar = getenv("CURVEBALL_ENABLE");
+        char *curveball_enable_envar = getenv("CURVEBALL_ENABLE");
         int level = 100;        /* safely beyond all levels */
 
-        if(curveball_enable_envar)
+        if (curveball_enable_envar) {
             level = atoi(curveball_enable_envar);
+	}
 
         curveball_enable(level);
-        if(CB_DEBUG) fprintf(stderr, "%s: Curveball enabled at level %d\n", progname, level);
+        if (CB_DEBUG) {
+	    fprintf(stderr, "%s: Curveball enabled at level %d\n",
+		    progname, level);
+	}
     }
     {
-        char* env_exit_on_no_dr = PR_GetEnv("CB_CLIENT_NO_DR");
-        if(env_exit_on_no_dr) {
+        char *env_exit_on_no_dr = PR_GetEnv("CB_CLIENT_NO_DR");
+        if (env_exit_on_no_dr) {
             exit_on_no_dr = atoi(env_exit_on_no_dr);
         }
     }
 
-    if(CB_DEBUG) fprintf(stderr, "%s: Curveball debugging enabled\n", progname);
+    if (CB_DEBUG) {
+	fprintf(stderr, "%s: Curveball debugging enabled\n", progname);
+    }
 
-
-	optstate = PL_CreateOptState(argc, argv, "A:c:dh:i:k:p:s:u");
-	while (PL_GetNextOpt(optstate) == PL_OPT_OK) {
-		switch (optstate->option) {
-		case 'A':
-			if (!(curveball_agent_port = (PRUint16) atoi(optstate->value)))
-				err_exit("Bogus port specified");
-			break;
-		case 'c':
-			if (!(certdb = strdup(optstate->value)))
-				err_exit("Out of memory");
-			break;
-		case 'd':
-			use_deadbeef = 1;
-			break;
-		case 'h':
-			if (!(hostname = strdup(optstate->value)))
-				err_exit("Out of memory");
-			break;
-		case 'p':
-			if (!(port = (PRUint16) atoi(optstate->value)))
-				err_exit("Bogus port specified");
-			break;
-		case 's':
-			if (!(sentinel_hex = strdup(optstate->value)))
-				err_exit("Out of memory");
-
-			{
-				size_t sentinel_hex_len = 2
-						* (CB_SENTINEL_LABEL_BYTES + CB_SENTINEL_BYTES);
-				char *hex_chars = "0123456789abcdefABCDEF";
-
-				if (strlen(sentinel_hex) != sentinel_hex_len) {
-					fprintf(stderr, "Sentinel must be %u hex digits\n",
-							sentinel_hex_len);
-					err_exit("Bad sentinel length");
-				}
-
-				if (strspn(sentinel_hex, hex_chars) != sentinel_hex_len) {
-					fprintf(stderr, "Sentinel must be %u hex digits\n",
-							sentinel_hex_len);
-					err_exit("Sentinel has non-hex digits in it");
-				}
-				break;
-			}
-
-		case 'u':
-			request_template = REQUEST_TEMPLATE_UNI;
-			CURVEBALL_TUNNEL_TYPE = CURVEBALL_UNIDIRECTIONAL_TUNNEL;
-			printf("asking for unidirectional\n");
-			break;
+    optstate = PL_CreateOptState(argc, argv, "A:c:dh:i:k:p:s:u");
+    while (PL_GetNextOpt(optstate) == PL_OPT_OK) {
+	switch (optstate->option) {
+	    case 'A':
+		if (!(curveball_agent_port = (PRUint16) atoi(optstate->value))) {
+		    err_exit("Bogus port specified");
 		}
+		break;
+	    case 'c':
+		if (!(certdb = strdup(optstate->value))) {
+		    err_exit("Out of memory");
+		}
+		break;
+	    case 'd':
+		use_deadbeef = 1;
+		break;
+	    case 'h':
+		if (!(hostname = strdup(optstate->value))) {
+		    err_exit("Out of memory");
+		}
+		break;
+	    case 'p':
+		if (!(port = (PRUint16) atoi(optstate->value))) {
+		    err_exit("Bogus port specified");
+		}
+		break;
+	    case 's': {
+		size_t sentinel_hex_len = 2
+			* (CB_SENTINEL_LABEL_BYTES + CB_SENTINEL_BYTES);
+		char *hex_chars = "0123456789abcdefABCDEF";
+
+		if (!(sentinel_hex = strdup(optstate->value))) {
+		    err_exit("Out of memory");
+		}
+
+		if (strlen(sentinel_hex) != sentinel_hex_len) {
+		    fprintf(stderr, "Sentinel must be %u hex digits\n",
+			    sentinel_hex_len);
+		    err_exit("Bad sentinel length");
+		}
+
+		if (strspn(sentinel_hex, hex_chars) != sentinel_hex_len) {
+		    fprintf(stderr, "Sentinel must be %u hex digits\n",
+			    sentinel_hex_len);
+		    err_exit("Sentinel has non-hex digits in it");
+		}
+		break;
+	    }
+	    case 'u':
+		request_template = REQUEST_TEMPLATE_UNI;
+		CURVEBALL_TUNNEL_TYPE = CURVEBALL_UNIDIRECTIONAL_TUNNEL;
+		break;
 	}
+    }
+
     PL_DestroyOptState(optstate);
 
     if ((sentinel_hex == NULL) && !use_deadbeef) {
 	usage_exit("either -s or -d must be specified");
     }
 
-    if(hostname == NULL)
+    if (hostname == NULL) {
         usage_exit("hostname unspecified");
+    }
 
     PR_Init(PR_USER_THREAD, PR_PRIORITY_NORMAL, 0);
     PR_STDIO_INIT();
@@ -796,29 +837,22 @@ int main(int argc, char** argv)
 
     secstat = NSS_Init(certdb);
 
-    if(secstat != SECSuccess) {
+    if (secstat != SECSuccess) {
         int len = PR_GetErrorTextLength();
-        char* errtext = PR_Malloc(256+len);
-        if(errtext == NULL) {
-            PR_snprintf(err,
-                        sizeof(err),
-                        "%s: NSS_Init(%s) failed; errcode %d; (Can't allocate storage for %d bytes of error text)",
-                        progname,
-                        certdb,
-                        PR_GetError(),
-                        len);
+        char *errtext = PR_Malloc(256+len);
+
+        if (errtext == NULL) {
+            PR_snprintf(err, sizeof(err),
+		    "%s: NSS_Init(%s) failed; errcode %d; (Can't allocate storage for %d bytes of error text)",
+		    progname, certdb, PR_GetError(), len);
         } else {
             int errlen = PR_GetErrorText(errtext);
             char *errt = "(unknown error)";
-            if(errlen)
+            if (errlen)
                 errt = errtext;
 
-            PR_snprintf(err,
-                        sizeof(err),
-                        "%s: NSS_Init(%s) failed; %s",
-                        progname,
-                        certdb,
-                        errt);
+            PR_snprintf(err, sizeof(err), "%s: NSS_Init(%s) failed; %s",
+		    progname, certdb, errt);
 
             free(errtext);
         }
@@ -864,6 +898,7 @@ int main(int argc, char** argv)
 	    my_path = PR_GetLibraryFilePathname("", (PRFuncPtr) NSS_Init);
 	    pathlen = strlen(module_tmplt) + strlen(my_path);
 	    module_name = PR_Malloc(pathlen);
+
 	    if (module_name == NULL) {
 		fprintf(stderr, "Error: PR_Malloc(%lu) failed\n", pathlen);
 		exit(11);
@@ -894,7 +929,7 @@ int main(int argc, char** argv)
 
     if (use_deadbeef) {
 	fprintf(stderr, "%s: Using default sentinel\n", progname);
-	memcpy(stencil_key, 'deadbeef', sizeof(deadbeef));
+	memcpy(stencil_key, deadbeef, sizeof(deadbeef));
 	memcpy(sentinel, deadbeef, sizeof(deadbeef));
 	memset(sentinel_label, '\0', sizeof(sentinel_label));
 	memcpy(sentinel_label, deadbeef, sizeof(deadbeef));
@@ -908,8 +943,10 @@ int main(int argc, char** argv)
 			sizeof(sentinel_label));
     }
 
-    if(CB_DEBUG)
-        curveball_asciify("sentinel_label: ", sentinel_label, sizeof(sentinel_label));
+    if (CB_DEBUG) {
+        curveball_asciify("sentinel_label: ",
+		sentinel_label, sizeof(sentinel_label));
+    }
 
     /* Now, copy bytes from the sentinel label into the aes_hello_key and
      * aes_iv data
@@ -919,14 +956,16 @@ int main(int argc, char** argv)
     memset(aes_hello_key_data, 0, sizeof(aes_hello_key_data));
     memcpy(aes_hello_key_data, sentinel_label, sizeof(sentinel_label));
 
-    if(! curveball_set_sentinel(sentinel_data)) {
+    if (! curveball_set_sentinel(sentinel_data)) {
         berr_exit("Can't set sentinel key");
     }
-
-    if(! curveball_set_curveball_hello_key(&aes_hello_key)) {
+    if (! curveball_set_sentinel_label(sentinel_label)) {
+        berr_exit("Can't set sentinel label  key");
+    }
+    if (! curveball_set_curveball_hello_key(&aes_hello_key)) {
         berr_exit("Can't set AES key");
     }
-    if(! curveball_set_curveball_hello_iv(&aes_iv)) {
+    if (! curveball_set_curveball_hello_iv(&aes_iv)) {
         berr_exit("Can't set AES IV");
     }
 
@@ -944,44 +983,35 @@ int main(int argc, char** argv)
      * we will need it to check that the signature on the "welcome to
      * curveball" message is correct.
      */
-    if(!curveball_cert("curveball", "curveball")) {
+    if (!curveball_cert("curveball", "curveball")) {
         fprintf(stderr, "%s: Can't get curveball-certificate info: %s\n",
-                progname,
+		progname,
                 curveball_error);
         exit(10);
     }
 
     r = PR_GetHostByName(hostname, netdbbuf, PR_NETDB_BUF_SIZE, &hp);
     if (r) {
-        PR_snprintf(err,
-                    sizeof(err),
-                    "%s: Host name lookup failed for %s",
-                    progname,
-                    hostname);
+        PR_snprintf(err, sizeof(err), "%s: Host name lookup failed for %s",
+		progname, hostname);
         berr_exit(err);
     }
 
     PR_EnumerateHostEnt(0, &hp, 0, &na_server);
-    PR_InitializeNetAddr(PR_IpAddrNull,port,&na_server);
+    PR_InitializeNetAddr(PR_IpAddrNull, port, &na_server);
 
     sock = PR_NewTCPSocket();
 
-    if(NULL == SSL_ImportFD(NULL, sock)) {
-        PR_snprintf(err,
-                    sizeof(err),
-                    "%s: Can't create SSL socket",
-                    progname);
+    if (NULL == SSL_ImportFD(NULL, sock)) {
+        PR_snprintf(err, sizeof(err), "%s: Can't create SSL socket", progname);
         berr_exit(err);
     }
 
     /* The following two options appear to be the ones that Firefox uses
      */
     r = SSL_OptionSet(sock, SSL_ENABLE_TLS, PR_TRUE);
-    if(r != SECSuccess) {
-        PR_snprintf(err,
-                    sizeof(err),
-                    "%s: Can't SSL_ENABLE_TLS",
-                    progname);
+    if (r != SECSuccess) {
+        PR_snprintf(err, sizeof(err), "%s: Can't SSL_ENABLE_TLS", progname);
         berr_exit(err);
     }
 
@@ -989,43 +1019,32 @@ int main(int argc, char** argv)
     r = SSL_OptionSet(sock, SSL_ENABLE_SSL3, PR_FALSE);
 
     r = SSL_OptionSet(sock, SSL_V2_COMPATIBLE_HELLO, PR_FALSE);
-    if(r != SECSuccess) {
-        PR_snprintf(err,
-                    sizeof(err),
-                    "%s: Can't disable SSL_V2_COMPATIBLE_HELLO",
-                    progname);
+    if (r != SECSuccess) {
+        PR_snprintf(err, sizeof(err),
+		"%s: Can't disable SSL_V2_COMPATIBLE_HELLO", progname);
         berr_exit(err);
     }
 
     /* We would like to set up the ciphers that Firefox uses, too.
      * See the note about SSL_CipherPolicySet, above.
      */
-    for(i = 0; i < sizeof(cipher_set)/sizeof(cipher_set[0]); i++) {
+    for (i = 0; i < sizeof(cipher_set) / sizeof(cipher_set[0]); i++) {
         r = SSL_CipherPrefSet(sock, cipher_set[i], PR_TRUE);
-        if(r != SECSuccess) {
-            PR_snprintf(err,
-                        sizeof(err),
-                        "%s: Can't enable cipher %d(0x%x)",
-                        progname,
-                        cipher_set[i],
-                        cipher_set[i]);
+        if (r != SECSuccess) {
+            PR_snprintf(err, sizeof(err), "%s: Can't enable cipher %d(0x%x)",
+                        progname, cipher_set[i], cipher_set[i]);
             if (CB_DEBUG) {
                 fprintf(stderr, "%s\n", err);
             }
             /* berr_exit(err); */
         }
         else {
-            PR_snprintf(err,
-                        sizeof(err),
-                        "%s: Enabled cipher %d(0x%x)",
-                        progname,
-                        cipher_set[i],
-                        cipher_set[i]);
+            PR_snprintf(err, sizeof(err), "%s: Enabled cipher %d(0x%x)",
+                        progname, cipher_set[i], cipher_set[i]);
             if (CB_DEBUG) {
                 fprintf(stderr, "%s\n", err);
             }
         }
-
     }
 
 #ifndef SERVER_AUTH_BUG_FIXED
@@ -1035,8 +1054,7 @@ int main(int argc, char** argv)
 #endif /* SERVER_AUTH_BUG_FIXED */
 
     r = PR_Connect(sock, &na_server, PR_SecondsToInterval(5));
-    if ( r == PR_FAILURE )
-    {
+    if (r == PR_FAILURE) {
         PR_snprintf(err, sizeof(err), "%s: Can't connect", progname);
         berr_exit(err);
     }
@@ -1044,22 +1062,24 @@ int main(int argc, char** argv)
     /* it *says* URL, but this name is misleading!  It must be the
      * domainname of the host.
      */
-    if(SSL_SetURL(sock, hostname)) {
+    if (SSL_SetURL(sock, hostname)) {
 	PR_snprintf(err, sizeof(err), "Can't create SSL_SetURL(%s)", hostname);
 	berr_exit(err);
     }
-    if(SSL_SetPKCS11PinArg(sock, NULL)) {
+    if (SSL_SetPKCS11PinArg(sock, NULL)) {
 	PR_snprintf(err, sizeof(err), "Can't create set pin");
 	berr_exit(err);
     }
 
-    if (CB_DEBUG)
+    if (CB_DEBUG) {
         fprintf(stdout,"Connected to %s:%d\n", hostname, port);
+    }
 
-	http_request(sock, hostname, port, request_template, stencil_key);
+    http_request(sock, hostname, port, request_template, stencil_key);
 
-    if(CB_DEBUG)
+    if (CB_DEBUG) {
         fprintf(stderr, "%s: sentinel seed was %d\n", progname, sentinel_seed);
+    }
 
     /* Shutdown the socket */
     PR_Shutdown(sock, PR_SHUTDOWN_BOTH);

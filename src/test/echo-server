@@ -38,6 +38,11 @@ def parse_args():
 
     parser = OptionParser('usage: %progname [options] port')
 
+    parser.add_option('-n', '--repetitions', dest="repetitions",
+            default=1, type=int,
+            help='Number of times to echo each char [default=\'%default\']',
+            metavar="NUMBER")
+
     parser.add_option('-p', '--msg-prefix', dest="msg_prefix",
             default='',
             help='Prefix to add to each echoed message [default=\'%default\']',
@@ -79,6 +84,10 @@ class EchoServerProtocol(protocol.Protocol):
 
     def dataReceived(self, data):
         swapped = data.swapcase()
+
+        if self.REPETITIONS > 1:
+            swapped = ''.join([char * self.REPETITIONS for char in swapped])
+
         if not self.QUIET:
             print '%d [%s%s]' % (self.connection_number,
                     self.MESSAGE_PREFIX, swapped)
@@ -109,6 +118,7 @@ if __name__ == '__main__':
         (options, port) = parse_args()
 
         EchoServerProtocol.MESSAGE_PREFIX = options.msg_prefix
+        EchoServerProtocol.REPETITIONS = options.repetitions
 
         factory = EchoServerFactory()
         reactor.listenTCP(port, factory)

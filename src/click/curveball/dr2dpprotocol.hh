@@ -37,6 +37,7 @@ struct dr2dp_msg {
 #define DR2DP_OP_TYPE_REMOVE_FLOW		5
 #define DR2DP_OP_TYPE_REASSIGN_FLOW		6
 #define DR2DP_OP_TYPE_TLS_FLOW_ESTABLISHED	7
+#define DR2DP_OP_TYPE_ICMP			8
 // DR-only types (Click <--> user space DR communication)
 #define DR2DP_OP_TYPE_DH_BLACKLIST		10
     uint8_t     operation_type;
@@ -86,6 +87,21 @@ struct dr2dp_tls_flow_msg {
     uint8_t	protocol;
     uint8_t     padding[3];
     uint8_t	random_number[28];
+};
+
+// DR2DP ICMP message
+struct dr2dp_icmp_msg {
+    uint32_t	src_addr;
+    uint32_t	dst_addr;
+    uint16_t	src_port;
+    uint16_t	dst_port;
+    uint8_t	protocol;
+#define DR2DP_ICMP_FLAG_TO_CLIENT	0x01
+    uint8_t     flags;
+    uint16_t	padding;
+/*
+    uint8_t	icmp_packet[];
+*/
 };
 
 // UDP flow notification message

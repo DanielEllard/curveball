@@ -41,14 +41,14 @@ GREP="/bin/grep"
 AWK="/usr/bin/awk"
 ECHO="/bin/echo"
 
-RULEPAT="DROP\W*tcp\W*--\W*0.0.0.0/0\W*0.0.0.0/0"
+RULEPAT="DROP\W*tcp\|icmp\W*--\W*0.0.0.0/0\W*0.0.0.0/0"
 
 # Kill all the click processes we can find.
 # Start gently, but become more insistent.
 #
 kill_click() {
 
-    for exe in click /usr/local/bin/click ; do
+    for exe in click /opt/curveball/click-inst/bin/click ; do
 	for signal in SIGHUP SIGINT SIGTERM SIGKILL; do
 	    "$SUDO" "$KILLALL" -q -e -"$signal" "$exe"
 	done

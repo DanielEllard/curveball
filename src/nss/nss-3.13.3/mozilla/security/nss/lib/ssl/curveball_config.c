@@ -30,68 +30,61 @@
 
 #include "curveball_public.h"
 
-nssList* config_data;
+nssList *config_data;
 
 #ifdef USE_CURVEBALL_CONFIG
 #include <regex.h>
-typedef struct 
+typedef struct
 {
-    char* label;
-    char* value;
+    char *label;
+    char *value;
 } config_item;
+
 static int curveball_configured = 0;
 
 static PRBool
-item_has_label(void* a, void* b) 
+item_has_label(void *a, void *b)
 {
-    return (PRBool) (strcmp(((config_item*) a)->label,
-                            ((char*) b))
-                     == 0);
+    return (PRBool) (strcmp(((config_item *) a)->label, ((char *) b)) == 0);
 }
 
-static config_item* 
-config_item_make(char* label, char* value) 
+static config_item *
+config_item_make(char *label, char *value)
 {
-    config_item* item = (config_item*) PR_Calloc(1, sizeof(config_item));
-    
-    if(item) {
+    config_item *item = (config_item *) PR_Calloc(1, sizeof(config_item));
+
+    if (item) {
         item->label = PL_strdup(label);
         item->value = PL_strdup(value);
     }
-    if(item == NULL
-       || item->label == NULL
-       || item->value == NULL) {
-        if(item) {
-            if(item->label) PL_strfree(label);
-            if(item->value) PL_strfree(value);
+    if (item == NULL || item->label == NULL || item->value == NULL) {
+        if (item) {
+            if (item->label) PL_strfree(label);
+            if (item->value) PL_strfree(value);
             PR_Free(item);
         }
-    	PR_snprintf(curveball_error,
-                    CURVEBALL_ERROR_SIZE,
-                    "Can't create config_item ; %s",
-                    strerror(errno));
+	PR_snprintf(curveball_error, CURVEBALL_ERROR_SIZE,
+		"Can't create config_item ; %s", strerror(errno));
         curveball_errmsg(NULL);
         return NULL;
     }
     return item;
 }
 
-static void re_error(regex_t* re, int err, char* msg) 
+static void re_error(regex_t *re, int err, char *msg)
 {
     char errbuf[256];
     regerror(err, re, errbuf, sizeof(errbuf));
-    PR_snprintf(curveball_error,
-                CURVEBALL_ERROR_SIZE,
-                "Can't compile %s; error %d\n",
-                msg,
-                err);
+    PR_snprintf(curveball_error, CURVEBALL_ERROR_SIZE,
+	    "Can't compile %s; error %d\n", msg, err);
 }
 
 SECStatus
-curveball_config_value_add(char* label, char* value) 
+curveball_config_value_add(char *label, char *value)
 {
-    config_item* item = config_item_make(label, value);
-    if(item) {
+    config_item *item = config_item_make(label, value);
+
+    if (item) {
         nssList_Add(config_data, item);
         return SECSuccess;
     }
@@ -101,29 +94,39 @@ curveball_config_value_add(char* label, char* value)
 /* Find the value associated with label
  * returns NULL if not found
  */
-char* curveball_config_value(char* label) 
+char *curveball_config_value(char *label)
 {
-    config_item* item;
+    config_item *item;
+
     curveball_config();
     item = nssList_Get(config_data, label);
-    if(item) return item->value;
-    else return NULL;
+    if (item) {
+	return item->value;
+    }
+    else {
+	return NULL;
+    }
 }
 
 /* returns -1 on error */
 int
-curveball_config_int(char* label) 
+curveball_config_int(char *label)
 {
-    char* value = curveball_config_value(label);
+    char *value = curveball_config_value(label);
 
-    if(value) return(atoi(value));
-    else return -1;
+    if (value) {
+	return(atoi(value));
+    }
+    else {
+	return -1;
+    }
 }
 
-static char* drop_trailing_whitespace(char* buf) 
+static char *drop_trailing_whitespace(char *buf)
 {
-    int lastchar_index = strlen(buf)-1;
-    while(lastchar_index >= 0 && isspace(buf[lastchar_index])) {
+    int lastchar_index = strlen(buf) - 1;
+
+    while (lastchar_index >= 0 && isspace(buf[lastchar_index])) {
         buf[lastchar_index] = '\0';
         lastchar_index--;
     }
@@ -133,9 +136,9 @@ static char* drop_trailing_whitespace(char* buf)
 SECStatus
 curveball_config_file_read(void)
 {
-    char* config_file;
-    FILE* config;
-    char* fgot;
+    char *config_file;
+    FILE *config;
+    char *fgot;
     char buffer[1024];
     int lineno;
     regex_t re_assignment;
@@ -145,13 +148,13 @@ curveball_config_file_read(void)
     int err;
 
     /* matches ^<whitespace># ... */
-    if((err = regcomp(&re_comment, "^[ \t]*#", REG_NOSUB)) != 0) {
+    if ((err = regcomp(&re_comment, "^[ \t]*#", REG_NOSUB)) != 0) {
         re_error(&re_comment, err, "comment regex");
         curveball_errmsg(NULL);
         return SECFailure;
     }
     /* matches a line consisting just of whitespace */
-    if((err = regcomp(&re_blank, "^[ \t]*\n", REG_NOSUB|REG_NEWLINE)) != 0) {
+    if ((err = regcomp(&re_blank, "^[ \t]*\n", REG_NOSUB|REG_NEWLINE)) != 0) {
         re_error(&re_blank, err, "blank-line regex");
         curveball_errmsg(NULL);
         return SECFailure;
@@ -159,7 +162,7 @@ curveball_config_file_read(void)
     /* matches a python config [section] header
      * which we ignore, but which is also viewed as syntactically correct
      */
-    if((err = regcomp(&re_section, "^[ \t]*\\[.*\\]", REG_NOSUB)) != 0) {
+    if ((err = regcomp(&re_section, "^[ \t]*\\[.*\\]", REG_NOSUB)) != 0) {
         re_error(&re_section, err, "section regex");
         curveball_errmsg(NULL);
         return SECFailure;
@@ -167,7 +170,7 @@ curveball_config_file_read(void)
     /* vbl = value # even with a comment and whitespace, extracts vbl and
      * value from the string
      */
-    if((err = regcomp(&re_assignment,
+    if ((err = regcomp(&re_assignment,
                       "^[ \t]*([^ \t=]+)[ ]*=[ ]*([^#]+).*\n",
                       REG_EXTENDED|REG_NEWLINE)) != 0) {
         re_error(&re_assignment, err, "assignment regex");
@@ -175,10 +178,10 @@ curveball_config_file_read(void)
         return SECFailure;
     }
 
-    if(curveball_configured) return 1;
+    if (curveball_configured) return 1;
     curveball_configured = 1;
 
-    if((config_data = nssList_Create(NULL, PR_TRUE)) == NULL) {
+    if ((config_data = nssList_Create(NULL, PR_TRUE)) == NULL) {
     	PR_snprintf(curveball_error,
                     CURVEBALL_ERROR_SIZE,
                     "Can't create config_data list; %s",
@@ -187,11 +190,11 @@ curveball_config_file_read(void)
         return SECFailure;
     }
     nssList_SetCompareFunction(config_data, item_has_label);
-    if((config_file = PR_GetEnv("CURVEBALL_CONFIG")) == NULL) {
+    if ((config_file = PR_GetEnv("CURVEBALL_CONFIG")) == NULL) {
         fprintf(stderr, "CURVEBALL_CONFIG environment variable not set\n");
         exit(1);
     }
-    if((config = fopen(config_file, "r")) == NULL) {
+    if ((config = fopen(config_file, "r")) == NULL) {
     	PR_snprintf(curveball_error,
                     CURVEBALL_ERROR_SIZE,
                     "Can't open '%s' for reading; %s\n",
@@ -202,10 +205,10 @@ curveball_config_file_read(void)
     }
 
     lineno = 0;
-    while((fgot = fgets(buffer, sizeof(buffer), config)) != NULL) {
+    while ((fgot = fgets(buffer, sizeof(buffer), config)) != NULL) {
         lineno++;
-        
-        if(PL_strlen(fgot) > 0 && buffer[PL_strlen(fgot)-1] != '\n') {
+
+        if (PL_strlen(fgot) > 0 && buffer[PL_strlen(fgot)-1] != '\n') {
             /* buffer too small for line */
             PR_snprintf(curveball_error,
                         CURVEBALL_ERROR_SIZE,
@@ -217,17 +220,19 @@ curveball_config_file_read(void)
         } else {
 #define NMATCH 3
             regmatch_t m[NMATCH];
-                
-            if(REG_NOMATCH == regexec(&re_comment, fgot, 0, m, 0)
-               && REG_NOMATCH == regexec(&re_blank, fgot, 0, m, 0)
-               && REG_NOMATCH == regexec(&re_section, fgot, 0, m, 0)) {
-                if(0 == regexec(&re_assignment, fgot, NMATCH, m, 0)) {
-                    if(m[1].rm_so >= 0 && m[2].rm_so >= 0) {
-                        char* label = &fgot[m[1].rm_so];
-                        char* value = &fgot[m[2].rm_so];
+
+            if (REG_NOMATCH == regexec(&re_comment, fgot, 0, m, 0)
+		    && REG_NOMATCH == regexec(&re_blank, fgot, 0, m, 0)
+		    && REG_NOMATCH == regexec(&re_section, fgot, 0, m, 0)) {
+                if (0 == regexec(&re_assignment, fgot, NMATCH, m, 0)) {
+                    if (m[1].rm_so >= 0 && m[2].rm_so >= 0) {
+                        char *label = &fgot[m[1].rm_so];
+                        char *value = &fgot[m[2].rm_so];
+
                         fgot[m[1].rm_eo] = '\0';
                         fgot[m[2].rm_eo] = '\0';
-                        curveball_config_value_add(label, drop_trailing_whitespace(value));
+                        curveball_config_value_add(label,
+				drop_trailing_whitespace(value));
                     } else {
                         PR_snprintf(curveball_error,
                                     CURVEBALL_ERROR_SIZE,

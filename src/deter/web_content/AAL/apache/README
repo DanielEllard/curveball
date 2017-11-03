@@ -1,0 +1,11 @@
+Apache Server
+An agent to start, stop and config of the apache HTTP server
+
+The defaults are defined as follows and can also be seen in the config file: 
+StartServers: 5
+MaxClients: 200
+MaxRequestsPerChild: 120
+Timeout: 300
+KeepAlive: 'On'
+MaxKeepAliveRequests: 100
+KeepAliveTimeout: 30

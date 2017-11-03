@@ -57,7 +57,7 @@ class SrcProtocol(Protocol):
         self.open_ack = False
         self.buffer = ''
         self.conn_id = None
-        
+
     def connectionMade(self):
         """
         We've successfully connected to a new client, send a setup msg
@@ -85,8 +85,6 @@ class SrcProtocol(Protocol):
         The client has written something, so wrap it up in a CCPMessage and
         send it along.
         """
-        #print "ccp_client_src: received data from src firefox/jabber/etc"
-        #print data
 
         while len(data) > 0:
             chunk = data[:4096]            
@@ -130,19 +128,25 @@ class DstProtocol(Protocol):
     """
     def __init__(self):
         self.read_buffer = ''
+        self.dec_tls_buffer = ''
         self.log = logging.getLogger('cb.ccp')
         self.tls_uni_mole_decoder = None
         self.tls_uni_hdshake_resp = 0
-        self.num_chaff_to_send = 1
         self.num_chaff_received = 0
         self.num_data_received = 0
-        
+        self.tunnel_chaff = None
+
     def connectionMade(self):
         """
         Tell the ccp_client that we've connected to the CT
         """
+
         if self.factory.tunnel_type == 'tls-uni':
-            pass # Handshake not completed at this point for tls-uni
+            # The TLS-UNI Handshake is not completed
+            # Unlike the other tunnels, for TLS-UNI, the final check
+            # for the completion of the handshake occurs in ccp_client
+            #
+            pass
         else:
             print "Client: Connected to CT_Client"
 
@@ -153,81 +157,104 @@ class DstProtocol(Protocol):
         #
         if self.factory.tunnel_type == 'tls-uni':
             self.tls_uni_mole = HttpMoleCryptoEncoder(
-                    'foobar.org', self.factory.sentinel[16:])        
+                    'foobar.org', self.factory.sentinel[16 : ])
 
     def chaffling(self):
-        for i in range(0,self.num_chaff_to_send):
-            self.factory.ccp_client.send_chaff(5*len(const.UNI_CHAFF_URL_PATH))
-            
+        """
+        The TLS_UNI client generates chaff directly in ccp_client. This is
+        unlike the HTTP_UNI client which generates chaff
+        in HTTP_CT_UNI_CLIENT.py. The TLS_UNI client generates chaff here
+        for ease of implementation: while chaff could be generated in
+        client_agent.c, this would require significant restructuring
+        (particularly as client_agent.c is shared by both the TLS_UNI
+        and TLS_BI clients)
+
+        TODO: a nice feature would be to be able to vary the length of the
+        chaff, e.g., for traffic shaping.
+        """
+
+        chaff_txt = const.TLS_UNI_CHAFF_URL_PATH
+        chaff_msg = CCPMessage.chaff_msg(len(chaff_txt), buf=chaff_txt)
+        msg_buf = chaff_msg.pack()
+
+        cnt = 4
+
+        if (self.num_chaff_received < 5) or (self.num_data_received > 0):
+            cnt += 20
+        if self.num_data_received > 1:
+            cnt += 20
+        if self.num_data_received > 2:
+            cnt += 20
+        if self.num_data_received > 5:
+            cnt+= 40
+
+        # Can do more here.
+        #
+        # Can also divide the looping call time interval by 3
+
+        # print 'chaff cnt %d num_data_received %d' % (
+        #         cnt, self.num_data_received)
+        total_buf = msg_buf * cnt
+
+        proto = self.factory.ccp_client.getDstProtocol()
+        proto.transport.write(total_buf)
+
+        self.factory.ccp_client.update_txbytes(len(total_buf))
+
+    def slow_chaffling(self):
+        """
+        The TLS_UNI client generates chaff directly in ccp_client. This is
+        unlike the HTTP_UNI client which generates chaff
+        in HTTP_CT_UNI_CLIENT.py. The TLS_UNI client generates chaff here
+        for ease of implementation: while chaff could be generated in
+        client_agent.c, this would require significant restructuring
+        (particularly as client_agent.c is shared by both the TLS_UNI
+        and TLS_BI clients)
+
+        TODO: a nice feature would be to be able to vary the length of the
+        chaff, e.g., for traffic shaping.
+        """
+
+        chaff_txt = const.TLS_UNI_CHAFF_URL_PATH
+        chaff_msg = CCPMessage.chaff_msg(len(chaff_txt), buf=chaff_txt)
+        msg_buf = chaff_msg.pack()
+
+        cnt = 1
+
+        if self.num_chaff_received < 5:
+            cnt += 1
+
+        if self.num_data_received > 0:
+            cnt += 2
+        if self.num_data_received > 1:
+            cnt += 2
+        if self.num_data_received > 2:
+            cnt += 2
+        if self.num_data_received > 5:
+            cnt+= 4
+
+        total_buf = msg_buf * cnt
+
+        proto = self.factory.ccp_client.getDstProtocol()
+        proto.transport.write(total_buf)
+
+        self.factory.ccp_client.update_txbytes(len(total_buf))
+
     def dataReceived(self, data):
         """
         When a new CCP message arrives from the dst, handle it.
         """
-               
-        # Check whether data is just chaff. This should only matter
-        # for the tls unidirectional tunnel, since the other tunnels
-        # do not have chaff processed in ccp_client
-        #
+
         if self.factory.tunnel_type == 'tls-uni':
-            [status, dec_resp, enc_resp] = self.tls_uni_mole.decode_response(data)
-           
-            # Decrypted response is chaff, so reset num_chaff_to_send
-            #
-            if dec_resp == '':
-                self.num_chaff_received += 1
-                self.num_data_received = 0
-            else:
-                self.num_data_received += 1
-                self.num_chaff_received = 0
-                if self.num_data_received > 1:
-                    self.factory.ccp_client.send_chaff(5*len(const.UNI_CHAFF_URL_PATH))
-                
-            if self.num_chaff_received > 0:#const.MAX_CHAFF_RESP_RECEIVED:
-                self.num_chaff_to_send = 1
-            
-            if self.factory.tls_uni_hdshake_done == False:
-                try:
-                    dec_resp.index(const.TLSUNI_CURVEBALLHELLO)
-                    self.factory.tls_uni_hdshake_done = True
-                    tunnel_chaff = LoopingCall(self.chaffling)
-                    tunnel_chaff.start(0.25)#const.SEND_CHAFF_INTERVAL)
-                    self.factory.ccp_client.signals.emit('CT_CONNECTED')                    
-                    print "Client: Connected to CT_Client"
-                    print "CCP has connected to CT, starting CCP server... "
-                    print 'Curveball ready'
-                except ValueError:
-                    self.read_buffer += dec_resp
-            else:
-                self.read_buffer += dec_resp
-                
-            # Unmole each mole url in the data, one by one
-            #
-            while status != -1:                
-                temp_data = re.split(enc_resp, data)
-                data = temp_data[1]           
-                [status, dec_resp, enc_resp] = self.tls_uni_mole.decode_response(data)
-                self.read_buffer += dec_resp
-            
-            # The last time we try to unmole data we will fail. That is
-            # how we know we are done. However, we still need to reset to get back
-            # to the right state for the next time through this function. So
-            # decrement to undo the state from the last attempt at unmoling.
-            #    
-            self.tls_uni_mole.decrement_seqno()
-            
-            # We've already unmoled the data and added it to self.read_buffer
-            # The only thing that might be left is part of an http response msg
-            # that contained no moled data. This should just be ignored.
-            #
-            data = ''
-               
+            data = self.process_TLS_uni_data(data)
+
         # Now we can process the ccp_messages in the data
         #
         self.read_buffer += data
-        self.factory.ccp_client.update_rxbytes(len(data))    
-              
+        self.factory.ccp_client.update_rxbytes(len(data))
+
         (msgs, self.read_buffer) = CCPMessage.recv(self.read_buffer)
-        
+
         for msg in msgs:
             msg_type = msg.get_msg_type()
             msg_conn_id = msg.get_conn_id()
@@ -238,22 +265,84 @@ class DstProtocol(Protocol):
                 continue
 
             if msg_type == CCPMessage.DATA_RECV:
-                msg_data = msg.get_data()    
-                #if self.factory.tunnel_type == 'tls-uni':
-                #    if self.num_chaff_to_send < 2:
-                #        self.num_chaff_to_send += 1
-                    
+                msg_data = msg.get_data()
                 proto.transport.write(msg_data)
             elif msg_type == CCPMessage.CLOSE_CONNECTION:
                 proto.transport.loseConnection()
             elif msg_type == CCPMessage.OPEN_CONNECTION_ACK:
                 proto.open_ack_recvd()
             else:
-                 print "unknown protocol"
-                 self.log.warn('received unknown CCP message type from CT: %s' % msg)
-       
+                self.log.warn('received unknown CCP message type from CT: %s' % msg)
+
         # Use the self.factory.ccp_client data to figure out where it should go
-        #self.otherProtocol.transport.write(data)
+        # self.otherProtocol.transport.write(data)
+
+    def process_TLS_uni_data(self, data):
+        """
+        Unmole each mole url in the data, one by one
+
+        Note that there is chaff in two locations
+        1. There are ccp chaff messages. These solely contain chaff
+        2. The mole urls: these may be purely data, data+chaff (in the case
+           that there was insufficient data to fill a packet), or purely chaff
+        """
+
+        self.dec_tls_buffer += data
+        data = ""
+
+        if self.tunnel_chaff == None:
+            self.tunnel_chaff = LoopingCall(self.chaffling)
+            self.tunnel_chaff.start(const.TLS_SEND_CHAFF_INTERVAL)
+
+        while True:
+
+            (self.dec_tls_buffer, http_resp, resp_body, unzip_resp_body, status
+                    ) = http_util.extract_http_resp(
+                            self.dec_tls_buffer, const.HTTP_UNI_TUNNEL)
+
+            if status == -1 or http_resp == None:
+                return data
+
+            [status, dec_resp, enc_resp
+                    ] = self.tls_uni_mole.decode_response(http_resp, commit=False)
+
+            # If we got an http response, but it doesn't decode, bail out
+            #
+            if status == -1:
+                print 'Error: no DR on path?'
+                try:
+                    reactor.stop()
+                except:
+                    # Eat the exception; we're already shutting down
+                    pass
+                return ''
+
+            if dec_resp == "":
+                self.num_chaff_received += 1
+                self.num_data_received = 0
+            else:
+                self.num_data_received += 1
+                self.num_chaff_received = 0
+
+            if (self.factory.tls_uni_hdshake_done == False and
+                self.check_for_tlsuni_welcome(dec_resp)):
+                self.factory.tls_uni_hdshake_done = True
+            else:
+                data += dec_resp
+
+    def check_for_tlsuni_welcome(self, dec_resp):
+
+        try:
+            dec_resp.index(const.TLSUNI_CURVEBALLHELLO)
+            self.factory.ccp_client.signals.emit('CT_CONNECTED')
+            print "Client: Connected to CT_Client"
+            print "CCP has connected to CT, starting CCP server... "
+            print 'Curveball ready'
+            return True
+
+        except ValueError:
+            print "Error: response does not contain welcome"
+            return False
 
     def connectionLost(self, reason):
         self.log.warning("DstProtocol lost connection to CT (%s)",
@@ -340,7 +429,7 @@ class CCPClient(object):
 
     def connectDst(self):
         dst_endpoint = endpoints.TCP4ClientEndpoint(
-                reactor, self.dst_addr[0], self.dst_addr[1], timeout=1)
+                reactor, self.dst_addr[0], self.dst_addr[1], timeout = 1)
         d = dst_endpoint.connect(self.dstFactory)
         d.addErrback(self.dstConnectionFailed)
 

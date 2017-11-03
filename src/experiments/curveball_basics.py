@@ -273,20 +273,20 @@ class CurveballBasics(CurveballExperiment):
 
         if not self.crypto:
             if use_pdb:
-                self.run('dp', 'cd %s/scripts ; sudo pdb decoyproxy.py -t' % self.install_dir)
+                self.run('dp', 'cd %s/scripts ; sudo pdb cb-dp -t' % self.install_dir)
                 self.run('dp', 'b /usr/lib/python/dist-packages/twisted/python/failure.py:499')
                 self.run('dp', 'r -t')
             else: 
-                self.run('dp', 'cd %s/scripts ; sudo python decoyproxy.py -s' % self.install_dir)
-                self.run('dp', 'cd %s/scripts ; sudo python %s decoyproxy.py -t' % (self.install_dir, self.profile_str))
+                self.run('dp', 'cd %s/scripts ; sudo python cb-dp -s' % self.install_dir)
+                self.run('dp', 'cd %s/scripts ; sudo python %s cb-dp -t' % (self.install_dir, self.profile_str))
         else:
             if use_pdb:
-                self.run('dp', 'cd %s/scripts ; sudo pdb decoyproxy.py -t' % self.install_dir)
+                self.run('dp', 'cd %s/scripts ; sudo pdb cb-dp -t' % self.install_dir)
                 self.run('dp', 'b /usr/lib/python/dist-packages/twisted/python/failure.py:499')
                 self.run('dp', 'r -t')
             else: 
-                self.run('dp', 'cd %s/scripts ; sudo python decoyproxy.py -s' % self.install_dir)
-                self.run('dp', 'cd %s/scripts ; sudo python %s decoyproxy.py -t -x' % (self.install_dir, self.profile_str))
+                self.run('dp', 'cd %s/scripts ; sudo python cb-dp -s' % self.install_dir)
+                self.run('dp', 'cd %s/scripts ; sudo python %s cb-dp -t -x' % (self.install_dir, self.profile_str))
     
             
         try:
@@ -306,8 +306,8 @@ class CurveballBasics(CurveballExperiment):
         if self.kernel:
             kernel_flag = '-k'
 
-#        cmd = 'cd %s/scripts ; sudo python %s dr.py %s 2> /dev/null' % (self.install_dir,  self.profile_str, kernel_flag)
-        cmd = 'cd %s/scripts ; sudo python %s dr.py --decoyname=%s %s 2> /dev/null' % (self.install_dir,  self.profile_str, decoyname, kernel_flag)
+#        cmd = 'cd %s/scripts ; sudo python %s cb-dr %s 2> /dev/null' % (self.install_dir,  self.profile_str, kernel_flag)
+        cmd = 'cd %s/scripts ; sudo python %s cb-dr --decoyname=%s %s 2> /dev/null' % (self.install_dir,  self.profile_str, decoyname, kernel_flag)
         self.run('dr', cmd)
         try:
             self.expect('dr', "DR Running", timeout=5)
@@ -332,13 +332,13 @@ class CurveballBasics(CurveballExperiment):
 
             # reset the key each time the experiment starts.
             #
-            cb.run('client', 'sudo %s/scripts/client-key-config -c cbtest0' %
+            cb.run('client', 'sudo %s/scripts/curveball-key-config -c cbtest0' %
                     self.install_dir)
 
             if not self.http:          
                 print 'Using TLS'
                 self.run('client',
-                         'cd %s/scripts ; sudo python %s client.py -d %s %s %s'
+                         'cd %s/scripts ; sudo python %s curveball-client -d %s %s %s'
                          % (self.install_dir, self.profile_str,
                          decoy, vpn_flag, nss_flag))
             else:
@@ -348,12 +348,12 @@ class CurveballBasics(CurveballExperiment):
 
                 if not self.crypto:
                     self.run('client',
-                             'cd %s/scripts ; sudo python %s client.py -w -d %s %s %s'
+                             'cd %s/scripts ; sudo python %s curveball-client -w -d %s %s %s'
                              % (self.install_dir, self.profile_str,
                                 decoy, vpn_flag, nss_flag))
                 else:
                     self.run('client',
-                             'cd %s/scripts ; sudo python %s client.py -w -x -d %s %s %s'
+                             'cd %s/scripts ; sudo python %s curveball-client -w -x -d %s %s %s'
                              % (self.install_dir, self.profile_str,
                                 decoy, vpn_flag, nss_flag))
             

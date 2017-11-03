@@ -28,31 +28,28 @@
 #include "sslimpl.h"
 #include "curveball_keydata.h"
 
-void curveball_printable(char*, unsigned char*, int);
-void curveball_asciify(const char*, const unsigned char*, const int);
+void curveball_printable(char *, unsigned char *, int);
+void curveball_asciify(const char *, const unsigned char *, const int);
 
-SECKEYPublicKey* curveball_cert(char*, char*);
-PRBool curveball_decoy_proxy_in_path(PRFileDesc*);
+SECKEYPublicKey *curveball_cert(char *, char *);
+PRBool curveball_decoy_proxy_in_path(PRFileDesc *);
 
 int curveball_is_enabled(int);
 void curveball_enable(int);
-void curveball_errmsg__(char*, char*, int);
+void curveball_errmsg__(char *, char *, int);
 
 #ifdef USE_CURVEBALL_CONFIG
-SECStatus curveball_config_value_add(char*, char*);
-char* curveball_config_value(char*);
-int curveball_config_int(char*);
+SECStatus curveball_config_value_add(char *, char *);
+char *curveball_config_value(char *);
+int curveball_config_int(char *);
 SECStatus curveball_config_file_read(void);
 SECStatus curveball_config(void);
 #endif /* USE_CURVEBALL_CONFIG */
-void curveball_generate_pms_data(sslSocket* ss, unsigned char* random);
+void curveball_generate_pms_data(sslSocket *ss, unsigned char *random);
 
 int curveball_debug(void);
-SECStatus curveball_generate_sentinel_data(int,
-                                           unsigned char*,
-                                           int,
-                                           unsigned char*,
-                                           unsigned char*);
+SECStatus curveball_generate_sentinel_data(int, unsigned char *, int,
+	unsigned char *, unsigned char *);
 
 #define curveball_errmsg(msg) curveball_errmsg__(msg, __FILE__, __LINE__)
 
@@ -70,5 +67,5 @@ extern int CURVEBALL_TUNNEL_TYPE; /* 0 = Bidirectional, 1 = Unidirectional */
 #define CURVEBALL_BIDIRECTIONAL_TUNNEL 0
 #define CURVEBALL_UNIDIRECTIONAL_TUNNEL 1
 
-#endif
+#endif /* _curveball_public_h */
 

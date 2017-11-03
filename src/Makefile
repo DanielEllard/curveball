@@ -87,8 +87,8 @@ BASE_PKGS	= \
 	python-pip xvfb xserver-xephyr tightvncserver zlib1g-dev \
 	python-bitarray python-pexpect fakeroot lintian \
 	python-tlslite \
-	ethtool \
-	python-socksipy
+	ethtool libpcap0.8-dev \
+	python-socksipy python-pcapy python-netifaces python-dnspython
 
 CLIENT_PKGS	= \
 	python-pip xvfb xserver-xephyr tightvncserver zlib1g-dev 
@@ -104,6 +104,7 @@ is_ubuntu1204:
 
 .BASE_PACKAGES:	is_ubuntu1204
 	@echo '## Fetching and installing packages'
+	sudo apt-get update
 	sudo apt-get -y install $(BASE_PKGS)
 	sudo apt-get -y -f install
 
@@ -169,7 +170,7 @@ IS64 := $(shell uname -m | grep -q x86_64  && echo 'USE_64=1')
 	@echo 'making sure dante will run on your system'
 	./packaging/dante-links
 	@echo 'Configuring the decoy proxy'
-	cd scripts && sudo python ./decoyproxy.py -s
+	cd scripts && sudo python ./cb-dp -s
 
 install_tree:
 	$(BUILD_TREE_TOOL) create test

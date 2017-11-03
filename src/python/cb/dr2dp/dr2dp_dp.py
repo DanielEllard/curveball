@@ -31,6 +31,7 @@ from twisted.internet import reactor
 from cb.dr2dp.dr2dp import DR2DPMessage1
 from cb.dr2dp.dr2dp import DR2DPMessageRedirectFlow
 from cb.dr2dp.dr2dp import DR2DPMessageRemoveFlow
+from cb.dr2dp.dr2dp import DR2DPMessageICMP
 import sys
 
 import os
@@ -61,6 +62,7 @@ class SrcProtocol(Protocol):
                 DR2DPMessage1.OP_TYPE_PING : self.req_ping,
                 DR2DPMessage1.OP_TYPE_FORWARD_IP : self.req_forward_ip,
                 DR2DPMessage1.OP_TYPE_REDIRECT_FLOW : self.req_redirect_flow,
+                DR2DPMessage1.OP_TYPE_ICMP : self.req_icmp,
             }
 
         self.optype_rep2handler = {
@@ -71,6 +73,7 @@ class SrcProtocol(Protocol):
         # Reference to the connection monitor
         self.dp_recv_endpoint = None
         self.dp_redirect_flow = None
+        self.dp_icmp_handler = None
         
         self.recv_buffer = ''
         self.log = logging.getLogger('dr2dp.dp')
@@ -80,6 +83,7 @@ class SrcProtocol(Protocol):
         DEBUG and log_debug('SrcProtocol.connectionMade')
         self.dp_recv_endpoint = self.factory.dr2dp_dp.dp_recv_endpoint
         self.dp_redirect_flow = self.factory.dr2dp_dp.dp_redirect_flow
+        self.dp_icmp_handler = self.factory.dr2dp_dp.dp_icmp_handler
         
         self.factory.dr2dp_dp.srcConnected(self)
         
@@ -219,6 +223,28 @@ class SrcProtocol(Protocol):
 
         return True
 
+    def req_icmp(self, msg):
+        """
+        Handle an icmp request
+        """
+
+        DEBUG and log_debug('SrcProtocol.req_icmp')
+        msg.__class__ = DR2DPMessageICMP
+        try:
+            msg.unpack()
+        except:
+            log_warn('invalid icmp message')
+            return False
+
+        if self.dp_icmp_handler != None:
+            self.dp_icmp_handler(msg.get_tuple(),
+                                 msg.get_pkt(),
+                                 msg.is_reverse())
+        else:
+            DEBUG and log_debug('no icmp handler registered')
+ 
+        return True
+
     def res_ping(self, msg):
         """
         Handle a ping response
@@ -246,7 +272,8 @@ class DR2DP_DP(object):
     def __init__(self, srcaddr):
         self.dp_recv_endpoint = None
         self.dp_redirect_flow = None
-        
+        self.dp_icmp_handler = None
+
         self.srcFactory = Factory()
         self.srcFactory.protocol = SrcProtocol
         self.srcFactory.dr2dp_dp = self
@@ -255,12 +282,14 @@ class DR2DP_DP(object):
         endpoint.listen(self.srcFactory)
         self.log = logging.getLogger('dr2dp.dp')
     
-    def register_dp_recv(self, dp_recv_end, dp_redirect_flow):
+    def register_dp_recv(self, dp_recv_end, dp_redirect_flow, dp_icmp_handler):
         DEBUG and log_debug('DR2DP_DP.register_recv_from_dr')
         self.dp_recv_endpoint = dp_recv_end
         self.dp_redirect_flow = dp_redirect_flow
+        self.dp_icmp_handler = dp_icmp_handler
         self.srcFactory.dp_recv_endpoint = dp_recv_end
         self.srcFactory.dp_redirect_flow = dp_redirect_flow
+        self.srcFactory.dp_icmp_handler = dp_icmp_handler
     
     def srcConnected(self, protocol):
         DEBUG and log_debug('DR2DP_DP.srcConnected')

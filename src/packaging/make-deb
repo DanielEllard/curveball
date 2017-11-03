@@ -17,7 +17,7 @@
 # implied.  See the License for the specific language governing
 # permissions and limitations under the License.
 
-THISDIR=$(dirname "$0")
+THISDIR=$(/usr/bin/dirname $(/usr/bin/which "$0"))
 
 SHORTNAME=curveball
 TARGETDIR=/opt/"${SHORTNAME}"
@@ -36,11 +36,16 @@ error() { log "ERROR: $*" >&2; }
 fatal() { error "$*"; exit 1; }
 usage_fatal() { error "$*"; usage >&2; exit 1; }
 
+# Use create-version directory; use create-version
+# to make a date-based string that makes sense for exports.
+#
+VERSION=$("${THISDIR}"/create-version)
+
 # The VERSION file must contain only the version string and nothing else.
-VERSION=$(cat "${THISDIR}"/VERSION | head -1 | awk '{print $1}')
-if [ $? -ne 0 ]; then
-    fatal "Cannot access VERSION file"
-fi
+# VERSION=$(cat "${THISDIR}"/VERSION | head -1 | awk '{print $1}')
+# if [ $? -ne 0 ]; then
+#     fatal "Cannot access VERSION file"
+# fi
 
 ARCHITECTURE=$(dpkg --print-architecture)
 
@@ -51,14 +56,12 @@ ARCHITECTURE=$(dpkg --print-architecture)
 
 remove_bloat() {
 
-    UNNEEDED="sentinels/keys"
+    UNNEEDED="bbn-tools sentinels"
 
     for bloat in ${UNNEEDED}; do
 	target="${INSTALLDIR}/${bloat}"
 	if [ -e "${target}" ]; then
 	    rm -rf "${target}"
-	else
-	    log "unneeded file" "${target}" "already removed"
 	fi
     done
 
@@ -71,8 +74,6 @@ remove_bloat() {
     rm -rf "${INSTALLDIR}"/experiments/out
     rm -rf "${INSTALLDIR}"/out
     rm -rf "${INSTALLDIR}"/scripts/out
-    rm -rf "${INSTALLDIR}"/sentinels/out
-    rm -rf "${INSTALLDIR}"/sentinels/sdata
 
     return 0
 }
@@ -130,6 +131,34 @@ add_click() {
     rm -rf "${INSTALLDIR}"/click/curveball/.tmp_versions
 }
 
+# Copy the installed version of the "Curveball" click from
+# /opt/curveball/click-inst to the staging area.
+#
+add_click_inst() {
+
+    if [ ! -d /opt/curveball/click-inst ]; then
+	fatal "Cannot find installed click in /opt/curveball"
+    fi
+
+    (cd /opt/curveball/ ; tar cf - click-inst) | \
+	    (cd "${INSTALLDIR}" ; tar xf -)
+
+    # Prune out the executables we don't need
+    for f in click-devirtualize click-pretty click-fastclassifier \
+	    click-align xml2click click-xform click-combine \
+	    click-mkmindriver click-uncombine click-flatten \
+	    click-buildtool click-compile click-mkelemmap \
+	    click2xml click-check click-elem2man click-undead ; do
+	rm -f "${INSTALLDIR}/click-inst/bin/$f"
+    done
+
+    # Prune out the static libraries we've already linked against
+    for f in libclick.a libclicktool.a ; do
+	rm -f "${INSTALLDIR}/click-inst/lib/$f"
+    done
+
+}
+
 # Clean up after earlier builds
 if [ -e "${SCRATCHDIR}" ]; then
     /bin/rm -rf "${SCRATCHDIR}"
@@ -168,8 +197,8 @@ Version: ${VERSION}
 Section: base
 Priority: optional
 Architecture: ${ARCHITECTURE}
-Maintainer: Raytheon / BBN Technologies
-Description: Curveball release
+Maintainer: Raytheon BBN Technologies
+Description: BBN Curveball release
 EOF
 
 cat "${DEBDIR}"/control
@@ -183,8 +212,8 @@ Depends: \
 	libtk-img, tcl, tk, tsocks, proxychains, \
 	libnetfilter-queue1, nmap, python-pyside, \
 	zlib1g-dev, python-bitarray, python-pexpect, \
-	curl, debsums, python-tlslite, ethtool, \
-	python-socksipy
+	curl, debsums, python-tlslite, ethtool, libpcap0.8-dev, \
+	python-socksipy, python-pcapy, python-netifaces, python-dnspython
 EOF
 
 cat >> "${DEBDIR}"/postinst << EOF
@@ -223,7 +252,7 @@ fi
 config_tsocks
 config_proxychains
 
-echo "DO NOT FORGET TO BUILD CLICK FOR THE DR"
+# echo "DO NOT FORGET TO BUILD CLICK FOR THE DR"
 # cd $TARGETDIR/click ; sudo make install || exit 1
 
 case \$(hostname -f) in
@@ -248,6 +277,8 @@ cat >> "${DEBDIR}"/prerm << EOF
 # pre remove for ${SHORTNAME} ${VERSION}
 
 /bin/rm -rf "${TARGETDIR}/click/"*
+/bin/rm -rf "${TARGETDIR}/click-inst"
+/bin/rm -rf "${TARGETDIR}/scripts/"*.log "${TARGETDIR}/scripts/"*.log.?
 
 exit 0
 EOF
@@ -283,7 +314,8 @@ EOF
     chmod 755 "${DEBDIR}"/preinst
 }
 
-add_click
+# add_click
+add_click_inst
 remove_bloat
 add_build_info
 add_docs
@@ -299,8 +331,17 @@ find "${INSTALLDIR}/python" -type f | xargs chmod 0644
 find "${INSTALLDIR}/lib" -type f | xargs chmod 0644
 find "${INSTALLDIR}/scripts" -executable | xargs chmod 0755
 find "${INSTALLDIR}/test" -executable | xargs chmod 0755
-find "${INSTALLDIR}" -perm 0664 | xargs chmod 0644
-find "${INSTALLDIR}" -perm 0775 | xargs chmod 0755
+
+# correct any permission issues (there shouldn't be any,
+# so check first)
+
+if [ $(find "${INSTALLDIR}" -perm 0664 | wc -l) -gt 0 ]; then
+    find "${INSTALLDIR}" -perm 0664 | xargs chmod 0644
+fi
+
+if [ $(find "${INSTALLDIR}" -perm 0775 | wc -l) -gt 0 ]; then
+    find "${INSTALLDIR}" -perm 0775 | xargs chmod 0755
+fi
 
 /usr/bin/fakeroot dpkg-deb --build "${SCRATCHDIR}" || fatal dpkg-deb failed
 

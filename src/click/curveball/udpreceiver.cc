@@ -49,7 +49,7 @@ UDPReceiver::configure(Vector<String> &conf, ErrorHandler *errh)
             continue;
         }
 
-        if (parts[0].equals("DETECTOR", 8)) {
+        if (parts[0].equals("DETECTOR", strlen("DETECTOR"))) {
             Element *e = cp_element(parts[1], this, errh);
             if (e != NULL) {
                 _configured_detectors.push_back(e);
@@ -57,13 +57,13 @@ UDPReceiver::configure(Vector<String> &conf, ErrorHandler *errh)
                 errh->error("invalid element");
             }
 
-        } else if (parts[0].equals("PORT", 4)) {
+        } else if (parts[0].equals("PORT", strlen("PORT"))) {
             if (!IntArg().parse(parts[1], _port)) {
                 errh->error("invalid port");
                 _port = 0;
             } 
 
-        } else if (parts[0].equals("IPADDR", 6)) {
+        } else if (parts[0].equals("IPADDR", strlen("IPADDR"))) {
             _local_addr = IPAddress(parts[1]);
 
         } else {

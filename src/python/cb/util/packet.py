@@ -43,8 +43,6 @@ class Packet(object):
     def __init__(self, buff, read_only=False):
         self.read_only = read_only
 
-        self.read_only = False
-
         if read_only:
             self.buff = buff
             self.bytes = None
@@ -55,12 +53,22 @@ class Packet(object):
 
         self.ihl = (ord(self.buff[0]) & 0x0f) << 2
         self.protocol = ord(self.buff[9])
+
         self.tcp = False
+        self.icmp = False
+
         if self.protocol == 6:
             self.tcp = True
-        if self.tcp:
             self.thl = (ord(self.buff[self.ihl + 12]) & 0xf0) >> 2
+
+        elif self.protocol == 1:
+            self.icmp = True
+            self.parse_icmp()
+
         self.need_cksum = False
+
+    def is_icmp(self):
+        return self.icmp == True
 
     def get_src(self):
         return self.buff[12:16]
@@ -163,6 +171,67 @@ class Packet(object):
         self.need_cksum = True
         self.bytes[self.ihl+13] = flags
 
+    # ICMP PACKET
+
+    ICMP_TYPE_DEST_UNREACH = 3
+    ICMP_TYPE_REDIRECT = 5
+    ICMP_TYPE_TIME_EXCEED = 11
+    ICMP_TYPE_PARAM_PROB = 12
+
+    def get_icmp_type(self):
+        assert(self.icmp)
+        return ord(self.buff[self.ihl])
+    def get_icmp_code(self):
+        return ord(self.buff[self.ihl + 1])
+
+    def parse_icmp(self):
+        assert(self.icmp)
+
+        self.icmphl = 8
+        self.embed_ip_offset = self.ihl + self.icmphl
+        self.embed_ihl = (ord(self.buff[self.embed_ip_offset]) & 0x0f) << 2
+
+        self.embed_tcp = False
+
+        self.embed_protocol = ord(self.buff[self.embed_ip_offset + 9])
+        if self.embed_protocol == 6:
+            self.embed_tcp = True
+            self.embed_tcp_offset = self.embed_ip_offset + self.embed_ihl
+            self.embed_thl = \
+                (ord(self.buff[self.embed_tcp_offset + 12]) & 0xf0) >> 2
+
+        self.icmp_parsed = True
+
+    def is_embed_tcp(self):
+        assert(self.icmp)
+        assert(self.icmp_parsed)
+        return self.embed_tcp == True
+
+    def set_icmp_src(self, src, sport):
+        assert(self.icmp)
+        assert(self.icmp_parsed)
+        assert(self.embed_tcp)
+
+        self.need_cksum = True
+
+        addr_start = self.embed_ip_offset + 12
+        addr_end   = self.embed_ip_offset + 16
+        self.bytes[addr_start:addr_end] = src
+
+        struct.pack_into('!H', self.bytes, self.embed_tcp_offset, sport)
+
+    def set_icmp_dst(self, dst, dport):
+        assert(self.icmp)
+        assert(self.icmp_parsed)
+        assert(self.embed_tcp)
+
+        self.need_cksum = True
+
+        addr_start = self.embed_ip_offset + 16
+        addr_end   = self.embed_ip_offset + 20
+        self.bytes[addr_start:addr_end] = dst
+
+        struct.pack_into('!H', self.bytes, self.embed_tcp_offset + 2, dport)
 
     def __str__(self):
         if self.need_cksum:
@@ -190,7 +259,7 @@ class Packet(object):
                                 self.get_payload_len())
 
     def update_cksum(self):
-        """ Updates the IP checksum of the packet """
+        """ Updates the IP and transport checksums of the packet """
         new_raw = dnet.ip_checksum(self.buff)
         self.bytes = bytearray(new_raw)
         self.buff = buffer(self.bytes)

@@ -44,6 +44,8 @@ The topology is initially the following (see min-internet.imn):
    |--- covert
    |
    |--- quilt
+   |
+   |--- tracker
 
 Note that the CORE simulation will commandeer the eth2 device and put it in
 promiscuous mode.  The eth2 device should be a VM NAT device.
@@ -88,6 +90,8 @@ class MinInternetTest(CurveballNet):
                 quilt=None,
                 coverts=['covert'],
                 dr2decoy=_dr2decoy)
+
+        self.servers.append('tracker')
 
         self.cmds['diagnostics'] = 'run some (mostly broken) diagnostic tests'
         self.cmds['speed_test'] = \

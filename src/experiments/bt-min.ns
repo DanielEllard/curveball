@@ -1,0 +1,39 @@
+# Minimal bittorrent experiment, for Curveball
+
+set ns [new Simulator]
+source tb_compat.tcl
+
+set covert [$ns node]
+tb-set-node-os $covert u1204-cb14
+
+set decoy [$ns node]
+tb-set-node-os $decoy u1204-cb14
+
+set dp [$ns node]
+tb-set-node-os $dp u1204-cb14
+
+set dr [$ns node]
+tb-set-node-os $dr u1204-cb14
+
+set filter [$ns node]
+tb-set-node-os $filter u1204-cb14
+
+set client [$ns node]
+tb-set-node-os $client u1204-cb14
+
+set tracker [$ns node]
+tb-set-node-os $tracker u1204-cb14
+
+# Links
+set link0 [$ns duplex-link $filter $client 1000000.0kb 0.0ms DropTail]
+
+set link1 [$ns duplex-link $dr $filter 1000000.0kb 0.0ms DropTail]
+
+# Lans
+set internet [$ns make-lan "$covert $decoy $dp $dr $tracker" 1000000.0kb 0.0ms]
+tb-set-netmask $internet "255.255.255.0"
+
+# Static-old configures once at exp. creation time
+$ns rtproto Static-old
+$ns run
+

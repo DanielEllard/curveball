@@ -1,9 +1,9 @@
 <html>
   <head>
-    <title>Running BBN Curveball - version 2014.06.18</title>
+    <title>Running BBN Curveball - version 2014.12.19</title>
   </head>
   <body>
-    <h1>Running BBN Curveball - version 2014.06.18</h1>
+    <h1>Running BBN Curveball - version 2014.12.19</h1>
 
     <p>
     This document describes how to run BBN Curveball,
@@ -57,7 +57,7 @@
 
     <p>
     If you modified the <tt>master.km</tt> key file earlier,
-    the copy the master files
+    then now copy the master files
     <tt>/opt/curveball/auth/keys/master.km</tt>
     and
     <tt>/opt/curveball/auth/keys/master.km.orig</tt>
@@ -70,18 +70,17 @@
     </p>
 
     <pre>
-    cd ; sudo /opt/curveball/scripts/cbkm -C push
+    cd ; sudo /opt/curveball/scripts/cbnoc-keymanager -C push
     </pre>
 
     <p>
-    This will create the sentinel sets needed for 16 hours of operation.
+    This will create the sentinel sets needed for 12 hours of operation.
     </p>
 
     <p>
     This command can be re-run periodically
     (from a <tt>cron</tt> job, or otherwise)
     to generate new sentinel sets before they are needed.
-    The sentinel 
     </p>
 
     <p>
@@ -94,12 +93,44 @@
     <h3> Bidirectional TLS mode</h3>
 
     <p>
-    On the <tt>dp</tt>, run the following command:
+    Choose the subnet that the DP will use for
+    incoming packets to the SOCKS proxy.
+    If the DP host only has one configured network interface,
+    then this should be the subnet to which that interface is
+    connected.
+    Note that this subnet must be specified as an IPv4 address
+    and a maskwidth.
+    The default is <tt>10.0.0.0/8</tt>,
+    which is inappropriate in most contexts.
+    </p>
+
+    <p>
+    After determining the proper SUBNET to use for each
+    <tt>dp</tt> node (which may be different on each node),
+    run the following command:
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/decoyproxy.py
+    sudo /opt/curveball/scripts/cb-dp \
+	    --permitted-subnet SUBNET
     </pre>
+
+    <p>
+    For example, if the <tt>dp</tt> is attached to
+    network 10.1.1.0/24, then the command would be:
+    </p>
+
+    <pre>
+    sudo /opt/curveball/scripts/cb-dp \
+	    --permitted-subnet 10.1.1.0/24
+    </pre>
+
+    <p>
+    <i>
+	See the instructions for <a href="#VPN">using VPN mode</a>
+	for additional commandline parameters for <tt>cb-dp</tt>.
+    </i>
+    </p>
 
     <p>
     After the <tt>decoyproxy</tt> is ready,
@@ -107,7 +138,7 @@
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/dr.py --decoyproxy dp:4001 \
+    sudo /opt/curveball/scripts/cb-dr --decoyproxy dp:4001 \
             --decoyname decoy --clientname client
     </pre>
 
@@ -122,20 +153,21 @@
     
     <ul>
       <li> The <tt>clientname</tt> must be the name of a host whose
-      route is via the ingress interface (for packets from a client
+      route to the decoy is via the ingress interface (for packets from a client
       to a decoy) of the <tt>dr</tt></li>
       <li> The <tt>decoyname</tt> must be the name of a host whose
-      route is via the egress interface (for packets from a client
+      route to the client is via the egress interface (for packets from a client
       to a decoy) of the <tt>dr</tt></li>
       <li> The <tt>decoyproxy</tt> is the name of the decoy proxy
+      (the host running <tt>cb-dp</tt>)
       for this decoy router </li>
     </ul>
 
     <p>
-    <b>Note:</b> If the <tt>decoyproxy.py</tt> process exits for any reason,
-    the <tt>dr.py</tt> process will lose its connection to it and also exit.
-    Therefore whenever you restart <tt>decoyproxy.py</tt> (for example, to
-    change its commandline) you must also restart <tt>dr.py</tt>.
+    <b>Note:</b> If the <tt>cb-dp</tt> process exits for any reason,
+    the <tt>cb-dr</tt> process will lose its connection to it and also exit.
+    Therefore whenever you restart <tt>cb-dp</tt> (for example, to
+    change its commandline) you must also restart <tt>cb-dr</tt>.
     </p>
 
     <p>
@@ -146,11 +178,12 @@
 
     <p>
     When the <tt>dp</tt>, <tt>dr</tt>, and <tt>decoy</tt> servers are
-    running, start on the <tt>client</tt> node, start the BBN Curveball client:
+    running, then start on the <tt>client</tt> node,
+    start the BBN Curveball client:
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/client.py -x -d decoy:443
+    sudo /opt/curveball/scripts/curveball-client -x -d decoy:443
     </pre>
 
     <p>
@@ -166,7 +199,7 @@
     </pre>
 
     <p>
-    If unsuccessful, <tt>client.py</tt> will exit
+    If unsuccessful, <tt>curveball-client</tt> will exit
     after printing an error message.
     </p>
 
@@ -201,16 +234,16 @@
 
     <pre>
     # bidirectional:
-    sudo /opt/curveball/scripts/client.py -x -d decoy:80 -w
+    sudo /opt/curveball/scripts/curveball-client -x -d decoy:80 -w
 
     # unidirectional:
-    sudo /opt/curveball/scripts/client.py -x -d decoy:80 -w -u
+    sudo /opt/curveball/scripts/curveball-client -x -d decoy:80 -w -u
     </pre>
 
     <h2> Using the BBN Curveball SOCKS proxy </h2>
 
     <p>
-    While <tt>client.py</tt> is running in SOCKS mode on the client,
+    While <tt>curveball-client</tt> is running in SOCKS mode on the client,
     it creates a SOCKS proxy running at <tt>localhost:5010</tt>.
     Any application that can use SOCKS can access the network
     via that proxy:
@@ -226,11 +259,103 @@
     page via BBN Curveball.
     </p>
 
-    <h2> Starting the BBN Curveball client - VPN mode </h2>
+    <h2> <a name="VPN"> Using VPN mode </a> </h2>
+
+    <h3> Configuring the dp for VPN mode </h3>
 
     <p>
-    VPN mode will be documented in a future release.
+    If the host running <tt>cb-dp</tt> has multiple network
+    interfaces, then you must specify which of these is going
+    to be used as the source of VPN'd packets from the client.
+    For example, if the DP host is connected to a management
+    network in addition to the Internet,
+    then you must specify
+    the interface that is used to route packets to the Internet
+    instead of the management interface.
+    The default interface is <tt>eth0</tt>.
     </p>
+
+    <p>
+    For example, if <tt>eth2</tt> is the right interface,
+    and the subnet of <tt>eth2</tt> is 10.1.1.0/24,
+    then the command would be:
+    </p>
+
+    <pre>
+    sudo /opt/curveball/scripts/cb-dp \
+	    --permitted-subnet 10.1.1.0/24 \
+	    --outbound-dev eth2
+    </pre>
+
+    <h3> Running the client in VPN mode </h3>
+
+    <p>
+    There are several options that control the client VPN
+    behavior:
+    <p>
+
+    <dl>
+	<dt> <b>-v</b> </dt>
+	<dd> <p> Enable VPN mode </p> </dd>
+
+	<dt> <b>--no-covert-dns</b> </dt>
+	<dd> <p> Do not tunnel DNS requests through the VPN;
+	    use the default DNS nameservers currently
+	    configured on the client host </p> </dd>
+
+	<dt> <b>-c <i>subnets</i></b> </dt>
+	<dd> <p> Do not set the default route to use the VPN;
+	    only tunnel traffic to/from the given list
+	    of subnets through the VPN </p> </dd>
+
+
+	<dt> <b> --vpn-default </b> </dt>
+	<dd> <p> Set the default route to use the VPN </p> </dd>
+
+
+    </dl>
+
+    <p>
+    When VPN mode is enabled on the client,
+    the output from <tt>curveball-client</tt>
+    is different.
+    After the Curveball connection is initialized,
+    the VPN is initialized in a seperate step.
+    In many cases, the first attempt to initialize
+    the VPN may appear to fail (because the VPN
+    attempts to star before the Curveball connection
+    is completely ready), but the client will
+    re-attempt to establish the VPN.
+    Typical output for a successful VPN connection
+    can look like:
+    </p>
+
+    <pre>
+    CREATING VPN
+    using vpn addr 127.0.0.1:5010
+    Connecting VPN
+    ipaddr 127.0.0.1 port 5010
+    VPN connection failed, retrying...
+    Client: Connected to CT_Client
+    CCP has connected to CT, starting CCP server...
+    Curveball ready
+    Connecting VPN
+    ipaddr 127.0.0.1 port 5010
+    tun_ip=10.255.0.2/tun_netmask=255.255.0.0/dns=8.8.8.8,8.8.4.4
+    RTNETLINK answers: No such process
+    RTNETLINK answers: No such process
+    RTNETLINK answers: No such process
+    RTNETLINK answers: No such process
+    VPN ESTABLISHED
+    </pre>
+
+    <p>
+    <b> Note that SOCKS and VPN mode are mutually exclusive. </b>
+    If you attempt to make a SOCKS connection when the VPN mode
+    is enabled, the connection will hang, but no error will
+    be reported.
+    </p>
+
 
     <h2> [optional] Install firewall rules on the filter </h2>
 

@@ -33,71 +33,69 @@ char *string;
     exit(1);
 }
 
-void PR_error(char* string) 
+void PR_error(char *string)
 {
     char tbuf[128];
-    char* tptr = &tbuf[0];
-    
+    char *tptr = &tbuf[0];
+
     int errlen = PR_GetErrorTextLength();
 
-    if(errlen > sizeof(tbuf)) {
+    if (errlen > sizeof(tbuf)) {
         tptr = PR_Malloc(errlen + 1);
-        if(tptr == NULL) {
-            
+        if (tptr == NULL) {
+
             PR_snprintf(tbuf, sizeof(tbuf),
-                        "%s; Can't malloc %d bytes for NSS error for code %d.",
-                        string,
-                        errlen+1,
-                        PR_GetError());
+		    "%s; Can't malloc %d bytes for NSS error for code %d.",
+		    string, errlen + 1, PR_GetError());
             PR_fprintf(PR_STDERR, tbuf);
             return;
         }
     }
     PR_GetErrorText(tptr);
     PR_fprintf(PR_STDERR, "%s: %s", string, tptr);
-    
+
     /* We don't get here, but if we did, we should free this memory, if
      * need be.
      */
-    if(tptr != &tbuf[0]) free(tptr);
+    if (tptr != &tbuf[0]) {
+	free(tptr);
+    }
 }
 
 /* Print SSL errors and exit*/
-void berr_exit(char* string)
+void berr_exit(char *string)
 {
     char tbuf[128];
-    char* tptr = &tbuf[0];
+    char *tptr = &tbuf[0];
     char outbuf[256];
-    
+
     int errlen = PR_GetErrorTextLength();
 
-    if(errlen > 0) {
-        if(errlen > sizeof(tbuf)) {
+    if (errlen > 0) {
+        if (errlen > sizeof(tbuf)) {
             tptr = PR_Malloc(errlen + 1);
-            if(tptr == NULL) {
-            
+            if (tptr == NULL) {
+
                 PR_snprintf(tbuf, sizeof(tbuf),
-                            "%s; Can't malloc %d bytes for NSS error for code %d",
-                            string,
-                            errlen+1,
-                            PR_GetError());
+			"%s; Can't malloc %d bytes for NSS error for code %d",
+			string, errlen+1, PR_GetError());
                 err_exit(tbuf);
             }
         }
         PR_GetErrorText(tptr);
     }
-    else
+    else {
         *tptr = '\0';
-        
-    PR_snprintf(outbuf, sizeof(outbuf),
-                "%s; %s",
-                string,
-                tptr);
+    }
+
+    PR_snprintf(outbuf, sizeof(outbuf), "%s; %s", string, tptr);
     err_exit(outbuf);
 
     /* We don't get here, but if we did, we should free this memory, if
      * we had to allocate some.
      */
-    if(tptr != &tbuf[0]) free(tptr);
+    if (tptr != &tbuf[0]) {
+	free(tptr);
+    }
 }
 

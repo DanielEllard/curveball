@@ -81,10 +81,12 @@ DIRNAME = os.path.normpath(
 
 from optparse import OptionGroup
 from optparse import OptionParser
+from twisted.internet import interfaces
 from twisted.internet import protocol
 from twisted.internet import reactor
 from twisted.internet import ssl
 from twisted.internet.task import LoopingCall
+from zope.interface import implements
 
 LOG = logging.getLogger('cb.mini-httpd')
 
@@ -440,7 +442,7 @@ class HttpProtocol(protocol.Protocol):
 
         header = self.response_header(body)
 
-        self.safe_write(header + body)
+        self.create_response_producer(header + body)
 
     def sized_response(self, request, requested_size, gen_type):
         """
@@ -474,11 +476,74 @@ class HttpProtocol(protocol.Protocol):
 
         header = self.response_header(body)
 
-        self.safe_write(header + body)
+        self.create_response_producer(header + body)
 
         msg_prefix = '%s %s' % (
                 self.factory.proto_name, str(self.transport.getPeer()))
         LOG.info('%s response sent', msg_prefix)
+
+    def create_response_producer(self, content):
+        producer = HttpResponseProducer(self, content)
+        self.transport.registerProducer(producer, True)
+        producer.resumeProducing()
+
+
+class HttpResponseProducer(object):
+    """
+    PushProducer for HTTP/HTTPS responses
+    """
+
+    implements(interfaces.IPushProducer)
+
+    def __init__(self, proto, content):
+        self.proto = proto
+        self.paused = False
+
+        self.content = content
+        self.offset = 0
+        self.length = len(content)
+        self.chunksize = 256 * 1024 # Guesstimate; works OK for i7 hardware.
+
+    def pauseProducing(self):
+        """
+        Called by twisted if it detects that we're falling behind
+        """
+
+        self.paused = True
+
+    def resumeProducing(self):
+        """
+        Start/continue producing output
+
+        Pull chunks out of the content, and send them to the transport,
+        only pausing when we're told to.  When we run out of content,
+        unregister ourselves.
+        """
+
+        # print 'RESUMING'
+        self.paused = False
+
+        while (not self.paused) and (self.offset < self.length):
+            chunk = self.content[self.offset : self.offset + self.chunksize]
+            self.offset += self.chunksize
+
+            try:
+                self.proto.transport.write(chunk)
+            except BaseException, exc:
+                msg_prefix = '%s %s' % (
+                        self.factory.proto_name, str(self.transport.getPeer()))
+                LOG.warn('%s write failed: %s', msg_prefix, str(exc))
+                self.proto.transport.unregisterProducer()
+                return
+
+        if self.offset >= self.length:
+            self.proto.transport.unregisterProducer()
+
+    def stopProducing(self):
+        """
+        Not really sure if this ever gets called...
+        """
+        pass
 
 
 class HttpFactory(protocol.ServerFactory):
@@ -715,10 +780,23 @@ def main():
 
     LOG.info('Creating random filler size: %d', options.max_filler)
 
-    random.seed(options.rand_seed)
+    if not options.rand_seed:
+        # choose random bytes, throw away the top two bits from
+        # each, and convert to base64
+        #
+        random_filler = bytearray(os.urandom(options.max_filler))
 
-    random_filler = ''.join([ base64[random.randint(0, 63)]
-            for _x in range(0, options.max_filler) ])
+        for ind in xrange(options.max_filler):
+            random_filler[ind] = base64[random_filler[ind] & 0x3f]
+    else:
+        random.seed(options.rand_seed)
+
+        random_filler = bytearray(options.max_filler)
+        for ind in xrange(options.max_filler):
+            random_filler[ind] = base64[random.randint(0, 63)]
+
+    random_filler = str(random_filler)
+
     LOG.info('Created random filler')
 
     seq_string = '0123456789abcde\n'

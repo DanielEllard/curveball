@@ -193,7 +193,7 @@ class SrcProtocol(Protocol):
             print "Integrity check failed, ignoring message"
             return
 
-        if re.search(const.UNI_CHAFF_URL_PATH, plain_text):
+        if re.search(const.HTTP_UNI_CHAFF_URL_PATH, plain_text):
             return (True, remainder)
 
         # Forward the covert request to the CCP_DP

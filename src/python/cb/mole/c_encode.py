@@ -82,6 +82,12 @@ class HttpMoleCryptoEncoder(object):
         # print 'Created Encrypted Mole Encoder'
 
     def get_session_key(self):
+        """
+        Returns the session_key, which is currently the full_sentinel
+
+        This function is primarily used by HTTP_CT_UNI_DP_NoHijack,
+        which cannot easily obtain the sentinel otherwise
+        """
         return self.session_key
     
     def reset_session_key(self):
@@ -191,17 +197,17 @@ class HttpMoleCryptoEncoder(object):
 
         prefix = self.make_seqno_prefix()
 
-        request = 'GET /%s HTTP/1.1\r\nHost: %s\r\n\r\n' % (
+        request = 'GET /%s HTTP/1.1\r\nHost: %s\r\n' % (
                 prefix + text_n, self.host)
+
+        request += "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:33.0)  Gecko/20100101 Firefox/33.0\r\n"
+        request += "Accept: text/html\r\n"
+        request += "Accept-Language: en-US,en;q=0.5\r\n"
+        request += "Accept-Encoding: \r\n"
+        request += "Connection: keep-alive\r\n\r\n"
 
         return request
 
-    def increment_seqno(self):
-        self.seqno += 1
-        
-    def decrement_seqno(self):
-        self.seqno -= 1
-        
     def encrypt(self, plaintext):
         """
         Encrypt the given plaintext
@@ -292,10 +298,14 @@ class HttpMoleCryptoEncoder(object):
         """
         return binascii.unhexlify(text)
 
-    def make_seqno_prefix(self):
+    def make_seqno_prefix(self, commit=True):
         """
         Return the identifying prefix, based on the sequence number
         and the session key.
+
+        If it is not desired at this point to commit to incrementing
+        the sequence number (e.g., because it is not yet known
+        whether a decryption will succeed), set commit=False
 
         TODO: is self.HASHLEN the right length?  It's probably more
         than we need.  Just a few characters ought to do it.
@@ -303,7 +313,13 @@ class HttpMoleCryptoEncoder(object):
 
         prefix = self.digest(('%8x' % self.seqno) + self.session_key)
         prefix = prefix[0:self.HASHLEN]
-        self.seqno += 1
+
+        # In some cases, we don't want to increment the
+        # sequence number until after we have correctly
+        # decoded, so we pass a flag to not increment if
+        # so desired.
+        if commit == True:
+            self.seqno += 1
 
         return prefix
 
@@ -332,7 +348,7 @@ class HttpMoleCryptoEncoder(object):
 
         return self.decode_path(encoded_path)
 
-    def decode_path(self, encoded_path, expected_text_p=None):
+    def decode_path(self, encoded_path, expected_text_p=None, commit=True):
         """
         Given a path (with all the other text removed)
         decode the data encoded in that path.
@@ -341,7 +357,7 @@ class HttpMoleCryptoEncoder(object):
         text_n = encoded_path[self.HASHLEN:]
 
         if not expected_text_p:
-            expected_text_p = self.make_seqno_prefix()
+            expected_text_p = self.make_seqno_prefix(commit)
 
         if expected_text_p != text_p:
             print 'Expected [%s]' % expected_text_p
@@ -359,6 +375,12 @@ class HttpMoleCryptoEncoder(object):
             print 'ERROR: verification failed'
             return (-1, '')
 
+        # We correctly decoded, so now it is safe to increment
+        # the sequence number
+        #
+        if commit == False:
+            self.seqno += 1
+
         text_t = text_t2.split(self.HASHSEP)[0]
 
         # FIXME: this is done without any error checking.
@@ -370,7 +392,7 @@ class HttpMoleCryptoEncoder(object):
 
         return (offset, text)
 
-    def decode_response(self, response_text):
+    def decode_response(self, response_text, commit):
         """
         Given a server response from an encoded text, decode the text and
         return the original plaintext.
@@ -385,13 +407,17 @@ class HttpMoleCryptoEncoder(object):
         it finds embedded in a response.
 
         Returns (-1. '') if the decoding failed.
+
+        If it is not desired at this point to commit to incrementing
+        the sequence number (e.g., because it is not yet known
+        whether a decryption will succeed), set commit=False
         """
 
         if type(response_text) != str:
             raise TypeError('response_text must be str (not %s)' %
                     str(type(response_text)))
 
-        prefix = self.make_seqno_prefix()
+        prefix = self.make_seqno_prefix(commit)
         # print >> sys.stderr, prefix
         # print >> sys.stderr, response_text
 
@@ -419,7 +445,7 @@ class HttpMoleCryptoEncoder(object):
             # print >> sys.stderr, 'res [%s]' % response_text
             # print >> sys.stderr, 'can [%s]' % candidate
 
-            res = self.decode_path(candidate, prefix)
+            res = self.decode_path(candidate, prefix, commit)
             if res != (-1, ''):
                 # print 'Decoded [%s]' % str(res)
                 return res[0], res[1], candidate

@@ -94,6 +94,7 @@ class CurveballKernelFilter : public Element { public:
     void cleanup(CleanupStage);
 
     static int device_filter(const String &devname, bool add_filter,
+                             bool drop_icmp,
 			     ErrorHandler *errh,
 			     const String &iptables_command = String());
 
@@ -102,6 +103,7 @@ class CurveballKernelFilter : public Element { public:
     Vector<String> _drop_devices;
     String _iptables_command;
 
+    bool _drop_icmp;
 };
 
 CLICK_ENDDECLS

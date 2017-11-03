@@ -39,18 +39,10 @@ class HTTPFlowDetector : public SentinelDetector {
 
     void * cast(const char *name);
 
-    void push(int port, Packet *p);
-
   private:
 
-    // Returns true if the packet is a TCP SYN; false otherwise.
-    bool syn_packet(Packet *p);
-
     // Handles incoming non-SYN TCP packets.
-    void process_non_syn_packet(Packet *p);
-
-    // Handles client ACK in TCP handshake.
-    void process_client_ack_packet(Packet *p, FlowEntry *entry);
+    virtual void process_non_syn_packet(Packet *p);
 
     // Inspects packet for sentinel.
     void process_http_data_packet(Packet *p, FlowEntry *entry);
@@ -64,7 +56,6 @@ class HTTPFlowDetector : public SentinelDetector {
 
     // Determines if the given buffer contains a Curveball sentinel.
     bool sentinel_packet(const IPFlowID &flow_key, const char *buf, int len);
-    bool string_sentinel(const IPFlowID &flow_key, const char *buf, int len);
 };
 
 

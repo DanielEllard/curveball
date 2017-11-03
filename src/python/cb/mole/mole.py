@@ -80,6 +80,8 @@ class MoleTunnelDp(object):
         #print self.ccp_unencoded.get_content()
         #print "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
 
+        #print "unencoded queue %d" % len(self.ccp_unencoded.get_content())
+
         # Maybe we've already extended far enough?
         #
         if self.encoded_pending.get_last() >= last_seq:

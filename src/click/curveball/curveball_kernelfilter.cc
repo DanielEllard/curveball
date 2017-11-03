@@ -31,7 +31,7 @@
 #include <unistd.h>
 CLICK_DECLS
 
-CurveballKernelFilter::CurveballKernelFilter()
+CurveballKernelFilter::CurveballKernelFilter(): _drop_icmp(true)
 {
 }
 
@@ -44,6 +44,7 @@ CurveballKernelFilter::configure(Vector<String> &conf, ErrorHandler *errh)
 {
     if (cp_va_kparse_remove_keywords(conf, this, errh,
 			"IPTABLES_COMMAND", 0, cpString, &_iptables_command,
+                        "DROP_ICMP", 0, cpBool, &_drop_icmp,
 			cpEnd) < 0)
 	return -1;
     String action, type, arg;
@@ -67,7 +68,8 @@ CurveballKernelFilter::initialize(ErrorHandler *errh)
     // If you update this, also update the device_filter code in FromDevice.u
     int before = errh->nerrors();
     for (int i = 0; i < _drop_devices.size(); ++i)
-	if (device_filter(_drop_devices[i], true, errh, _iptables_command) < 0)
+	if (device_filter(_drop_devices[i], true, _drop_icmp, errh,
+                          _iptables_command) < 0)
 	    _drop_devices[i] = String();
     return before == errh->nerrors() ? 0 : -1;
 }
@@ -79,31 +81,50 @@ CurveballKernelFilter::cleanup(CleanupStage stage)
 	ErrorHandler *errh = ErrorHandler::default_handler();
 	for (int i = _drop_devices.size() - 1; i >= 0; --i)
 	    if (_drop_devices[i])
-		device_filter(_drop_devices[i], false, errh);
+		device_filter(_drop_devices[i], false, _drop_icmp, errh);
     }
 }
 
 int
 CurveballKernelFilter::device_filter(const String &devname, bool add_filter,
+                            bool drop_icmp,
 			    ErrorHandler *errh,
 			    const String &iptables_command)
 {
-    StringAccum cmda;
+    int before = errh->nerrors();
+
+    StringAccum iptables_cmd;
     if (iptables_command)
-	cmda << iptables_command;
+	iptables_cmd << iptables_command;
     else if (access("/sbin/iptables", X_OK) == 0)
-	cmda << "/sbin/iptables";
+	iptables_cmd << "/sbin/iptables";
     else if (access("/usr/sbin/iptables", X_OK) == 0)
-	cmda << "/usr/sbin/iptables";
+	iptables_cmd << "/usr/sbin/iptables";
     else
 	return errh->error("no %<iptables%> executable found");
-    cmda << " " << (add_filter ? "-A" : "-D") << " FORWARD -p tcp -i "
-	 << shell_quote(devname) << " -j DROP";
-    String cmd = cmda.take_string();
-    int before = errh->nerrors();
-    String out = shell_command_output_string(cmd, "", errh);
-    if (out)
-	errh->error("%s: %s", cmd.c_str(), out.c_str());
+
+    String ip_cmd = iptables_cmd.take_string();
+
+    StringAccum tcp_cmd;
+    tcp_cmd << ip_cmd.c_str()
+            << " " << (add_filter ? "-A" : "-D") << " FORWARD -p tcp -i "
+	    << shell_quote(devname) << " -j DROP";
+    String final_tcp_cmd = tcp_cmd.take_string();
+    String tcp_out = shell_command_output_string(final_tcp_cmd, "", errh);
+    if (tcp_out)
+	errh->error("%s: %s", final_tcp_cmd.c_str(), tcp_out.c_str());
+
+    if (drop_icmp) {
+        StringAccum icmp_cmd;
+        icmp_cmd << ip_cmd.c_str()
+                 << " " << (add_filter ? "-A" : "-D") << " FORWARD -p icmp -i "
+                 << shell_quote(devname) << " -j DROP";
+        String final_icmp_cmd = icmp_cmd.take_string();
+        String icmp_out = shell_command_output_string(final_icmp_cmd, "", errh);
+        if (icmp_out)
+            errh->error("%s: %s", final_icmp_cmd.c_str(), icmp_out.c_str());
+    }
+
     return errh->nerrors() == before ? 0 : -1;
 }
 

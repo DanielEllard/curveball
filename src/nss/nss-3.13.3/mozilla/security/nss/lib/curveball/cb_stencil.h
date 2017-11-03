@@ -119,6 +119,7 @@ extern int cb_stencil_aes_create_plaintext(const unsigned char *sr,
 
 extern int cb_stencil_send(PRFileDesc *ssl,
 	unsigned char *full_sentinel,
-	const unsigned char *enc_key, unsigned int enc_keysize);
+	const unsigned char *enc_key, unsigned int enc_keysize,
+	const unsigned char *suffix);
 
 #endif /* CB_STENCIL_H */

@@ -1,0 +1,151 @@
+# Full Curveball experiment for the 2014 assessment, with
+# a number of extra web server nodes to serve as decoys
+# and exercise Remora
+# 
+# Set containerize_cb and containerize_web as appropriate.
+# If any nodes are containerized, build the experiment by
+# running the command
+#
+# /share/containers/containerize.py SAFER/curveball EXPNAME NSNAME
+#
+# If none of the nodes are containerized, then just create an
+# experiment using this NS file.
+
+# set containerize_cb to 1 if you want to containerize the Curveball
+# nodes.  set containerize_web to 1 if you want to containerize the
+# web server nodes.
+#
+set containerize_cb 0
+set containerize_web 1
+
+if { $containerize_cb || $containerize_web } {
+    set using_containers 1
+} else {
+    set using_containers 0
+}
+
+# cbstr is a script consisting of:
+#
+# sudo /share/safer/magi_core/scripts/magi_bootstrap.py \
+#	-p /share/safer/magi_core
+#
+# We could do this as a literal here, but apparently there
+# are problems if the startcmd string gets too long so
+# this is a way to keep it shorter
+#
+set startcmd "/share/safer/bin/cbstrt"
+set cb1204url "http://scratch/benito/u1204-cb14.qemu"
+
+set ns [new Simulator]
+source tb_compat.tcl
+
+set cb_nodes "client0 client1 client2 decoy0 decoy1 decoy2 dns dp0 dp1 dp2 dr0 dr1 dr2 filter quilt"
+
+set web_nodes "server00 server01 server02 server03 server04 server05 server06 server07 server08 server09 server10 server11 server12 server13 server14 server15 server16 server17 server18 server19 server20"
+
+foreach name $cb_nodes {
+    set $name [$ns node]
+    tb-set-node-startcmd $name $startcmd
+
+    if { $containerize_cb } {
+	tb-add-node-attribute $name containers:node_type openvz
+	tb-add-node-attribute $name containers:qemu_arch x86_64
+	tb-add-node-attribute $name containers:qemu_url $cb1204url
+    } else {
+	if { $using_containers } {
+	    tb-add-node-attribute $name containers:node_type "embedded_pnode"
+	}
+	tb-set-node-os $name u1204-cb14
+    }
+}
+
+foreach nodename $web_nodes {
+    set $nodename [$ns node]
+    tb-set-node-startcmd $nodename $startcmd
+
+    if { $containerize_web } {
+	tb-add-node-attribute $nodename containers:node_type openvz
+        tb-add-node-attribute $nodename containers:openvz_template ubuntu-12.04-x86_64
+    } else {
+	if { $using_containers } {
+	    tb-add-node-attribute $nodename containers:node_type "embedded_pnode"
+	}
+	tb-set-node-os $nodename Ubuntu1204-64-STD
+    }
+}
+
+# The "control" node exists only for MAGI purposes.  MAGI will use a node
+# named "control" for its controller (or the first node, alphabetically,
+# if there is no "control" node). It should only be on the control network, i.e
+# it does not need to connect to any testnodes or need a 10./8 address.
+set control [$ns node]
+if { $using_containers } {
+    tb-add-node-attribute $control containers:node_type "embedded_pnode"
+}
+
+# set egress [$ns node]
+# tb-set-node-os $egress Ubuntu1204-64-STD
+# tb-allow-external $egress
+
+# LANs
+#
+# We assign a single address on each LAN in order to constrain the subnet
+# attached to that LAN.
+
+set clientlan [$ns make-lan "$client0 $client1 $client2 $filter" 1000000.0kb 0.0ms]
+tb-set-netmask $clientlan "255.255.255.0"
+tb-set-ip-lan $client0 $clientlan 10.0.11.20
+tb-set-ip-lan $client1 $clientlan 10.0.11.21
+tb-set-ip-lan $client2 $clientlan 10.0.11.22
+tb-set-ip-lan $filter $clientlan 10.0.11.1
+
+set corelan [$ns make-lan "$filter $dr0 $dr1 $dr2 $dns $quilt" 1000000.0kb 0.0ms]
+tb-set-netmask $corelan "255.255.255.0"
+tb-set-ip-lan $filter $corelan 10.10.10.1
+tb-set-ip-lan $dr0 $corelan 10.10.10.10
+tb-set-ip-lan $dr1 $corelan 10.10.10.11
+tb-set-ip-lan $dr2 $corelan 10.10.10.12
+tb-set-ip-lan $dns $corelan 10.10.10.20
+tb-set-ip-lan $quilt $corelan 10.10.10.21
+
+set lan0 [$ns make-lan "$decoy0 $dp0 $dr0 $server00 $server01 $server02 $server03 $server04 $server05 $server06" 1000000.0kb 0.0ms]
+tb-set-netmask $lan0 "255.255.255.0"
+tb-set-ip-lan $dr0 $lan0 10.0.0.1
+tb-set-ip-lan $dp0 $lan0 10.0.0.2
+tb-set-ip-lan $decoy0 $lan0 10.0.0.3
+tb-set-ip-lan $server00 $lan0 10.0.0.4
+tb-set-ip-lan $server01 $lan0 10.0.0.5
+tb-set-ip-lan $server02 $lan0 10.0.0.6
+tb-set-ip-lan $server03 $lan0 10.0.0.7
+tb-set-ip-lan $server04 $lan0 10.0.0.8
+tb-set-ip-lan $server05 $lan0 10.0.0.9
+tb-set-ip-lan $server06 $lan0 10.0.0.10
+
+set lan1 [$ns make-lan "$decoy1 $dp1 $dr1 $server07 $server08 $server09 $server10 $server11 $server12 $server13" 1000000.0kb 0.0ms]
+tb-set-netmask $lan1 "255.255.255.0"
+tb-set-ip-lan $dr1 $lan1 10.0.1.1
+tb-set-ip-lan $dp1 $lan1 10.0.1.2
+tb-set-ip-lan $decoy1 $lan1 10.0.1.3
+tb-set-ip-lan $server07 $lan1 10.0.1.4
+tb-set-ip-lan $server08 $lan1 10.0.1.5
+tb-set-ip-lan $server09 $lan1 10.0.1.6
+tb-set-ip-lan $server10 $lan1 10.0.1.7
+tb-set-ip-lan $server11 $lan1 10.0.1.8
+tb-set-ip-lan $server12 $lan1 10.0.1.9
+tb-set-ip-lan $server13 $lan1 10.0.1.10
+
+set lan2 [$ns make-lan "$decoy2 $dp2 $dr2 $server14 $server15 $server16 $server17 $server18 $server19 $server20" 1000000.0kb 0.0ms]
+tb-set-netmask $lan2 "255.255.255.0"
+tb-set-ip-lan $dr2 $lan2 10.0.2.1
+tb-set-ip-lan $dp2 $lan2 10.0.2.2
+tb-set-ip-lan $decoy2 $lan2 10.0.2.3
+tb-set-ip-lan $server14 $lan2 10.0.2.4
+tb-set-ip-lan $server15 $lan2 10.0.2.5
+tb-set-ip-lan $server16 $lan2 10.0.2.6
+tb-set-ip-lan $server17 $lan2 10.0.2.7
+tb-set-ip-lan $server18 $lan2 10.0.2.8
+tb-set-ip-lan $server19 $lan2 10.0.2.9
+tb-set-ip-lan $server20 $lan2 10.0.2.10
+
+$ns rtproto Static-old
+$ns run

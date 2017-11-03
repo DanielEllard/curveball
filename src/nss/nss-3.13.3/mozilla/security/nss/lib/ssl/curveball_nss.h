@@ -24,10 +24,10 @@
 #include "ssl.h"
 #include "sslimpl.h"
 
-SECStatus curveball_generate_sentinel(sslSocket*, unsigned char *, int);
-SECStatus curveball_decode(void*, unsigned char*, int*, unsigned int, unsigned char*, int);
-int curveball_is_dp_hello(sslSocket*, sslBuffer*);
-int curveball_is_dp_hello_uni(sslSocket*, sslBuffer*);
+SECStatus curveball_generate_sentinel(sslSocket *, unsigned char *, int);
+SECStatus curveball_decode(void *, unsigned char *, int *,
+	unsigned int, unsigned char *, int);
+int curveball_is_dp_hello(sslSocket *, sslBuffer *);
+int curveball_is_dp_hello_uni(sslSocket *, sslBuffer *);
 
-#endif
-
+#endif /* _curveball_nss_h */

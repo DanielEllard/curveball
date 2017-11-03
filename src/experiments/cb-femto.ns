@@ -2,7 +2,7 @@
 #
 # Stripped-down 3-node network configuration:
 # no filter node or covert node (use the decoy as the covert)
-# and run the DP on the DR using dr-combo.
+# and run the DP on the DR using cb-dr-combo.
 
 set ns [new Simulator]
 source tb_compat.tcl
