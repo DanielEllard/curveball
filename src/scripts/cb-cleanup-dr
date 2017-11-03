@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+#
+# This material is based upon work supported by the Defense Advanced
+# Research Projects Agency under Contract No. N66001-11-C-4017.
+#
+# Copyright 2014 - Raytheon BBN Technologies Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.  See the License for the specific language governing
+# permissions and limitations under the License.
+
+
+# Clean up any state left behind by a crashed or rogue DR process:
+#
+# 1. Kill any click processes
+#
+# 2. Remove the iptables rules that look like rules set by those
+# click processes (perhaps removing innocent rules as well...)
+#
+# The state depends on the DR implementation, so this needs to be
+# reviewed periodically to check for any changes to the state.
+#
+# NOTE: this requires bash instead of sh in order to handle IFS
+# the way I want.  This may be due to ignorance of sh on my part.
+#
+# NOTE: uses features of iptables that might not be widely supported,
+# such as --line-numbers.
+
+SUDO="/usr/bin/sudo"
+IPTABLES="/sbin/iptables"
+KILLALL="/usr/bin/killall"
+GREP="/bin/grep"
+AWK="/usr/bin/awk"
+ECHO="/bin/echo"
+
+RULEPAT="DROP\W*tcp\W*--\W*0.0.0.0/0\W*0.0.0.0/0"
+
+# Kill all the click processes we can find.
+# Start gently, but become more insistent.
+#
+kill_click() {
+
+    for exe in click /usr/local/bin/click ; do
+	for signal in SIGHUP SIGINT SIGTERM SIGKILL; do
+	    "$SUDO" "$KILLALL" -q -e -"$signal" "$exe"
+	done
+    done
+}
+
+# Clear out any iptables rules for dropping forwarded TCP any/any packets.
+# These should be removed when click exits, but sometimes they stick
+# around and cause grief.
+#
+restore_iptables() {
+
+    "$ECHO" "Current iptables FORWARD chain:"
+    # "$SUDO" "$IPTABLES" -L FORWARD -n --line-numbers
+
+    # Note that we have to delete the rules in reverse
+    # numerical order because all the indices
+    # higher than X decrement when we delete X.
+    #
+    # It would be much easier to just to flush the forwarding
+    # table, but someone might be using it for something else,
+    # so we grep for rules that look like ours.
+    #
+    rulenums=$("$SUDO" "$IPTABLES" -L FORWARD -n --line-numbers \
+    		| "$GREP" -- "$RULEPAT" \
+		| "$AWK" '{print $1}' \
+		| sort -nr )
+
+    for rulenum in ${rulenums} ; do
+	"$IPTABLES" -D FORWARD "$rulenum"
+    done
+}
+
+kill_click
+restore_iptables
+
+# The exit status is not very meaningful
+#
+exit $?

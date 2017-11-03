@@ -1,0 +1,209 @@
+#!/bin/sh
+#
+# This material is based upon work supported by the Defense Advanced
+# Research Projects Agency under Contract No. N66001-11-C-4017.
+#
+# Copyright 2014 - Raytheon BBN Technologies Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.  See the License for the specific language governing
+# permissions and limitations under the License.
+
+
+# Start curveball in a simple manner, based on the current
+# EARS/DETER experiment name.
+#
+# In the worst case, this needs to be tweaked for every experiment.
+# For reasonably straightforward experiments, however, there is enough
+# consistency to make this reasonable.
+
+# Extra DR and DP flags
+#
+# These can be used for things like "--permit-deadbeef", or to set a
+# particular VPN range.
+#
+EXTRA_DR_FLAGS=""
+EXTRA_DP_FLAGS=""
+
+SUDO=/usr/bin/sudo
+CBDIR=/opt/curveball
+CBSCRIPTS="${CBDIR}/scripts"
+
+HOSTNAME=$(/bin/hostname)
+
+# Make sure that we are on a supported testbed.
+#
+# Right now, only EARS is supported.  CORE might be supported someday,
+# but this is really intended for EARS/DETER/EMULAB environments.
+#
+case $HOSTNAME in
+    *.ears.deterlab.net)
+	;;
+    *)
+	echo "ERROR: unsupported testbed"
+	exit 1
+	;;
+esac
+
+SHORTNAME=$(/bin/hostname | sed -e 's/\..*//')
+EXPNAME=$(/bin/hostname | sed -e 's/^[^.]*\.//' -e 's/\..*//')
+FULLNAME="${SHORTNAME}.${EXPNAME}"
+
+
+make_sents() {
+
+    # We make a different scratch directory for each experiment
+    # because we don't want an experiment with weird keys to
+    # clobber an experiment with ordinary keys
+    #
+    local scratchdir
+    scratchdir="${HOME}/cb/${EXPNAME}"
+    /bin/mkdir -p "${scratchdir}"
+
+    ${SUDO} ${CBSCRIPTS}/cbkm push
+}
+
+# Make sure that we are on a supported experiment.
+#
+# NOTE: this list must be kept up-to-date.
+#
+case ${EXPNAME} in
+    cb-femto*) ;;
+    cb-five*) ;;
+    cb-full*) ;;
+    cb-min*) ;;
+    cb-pico*) ;;
+    cb-qemu*) ;;
+    cb-quilt) ;;
+    *)
+	echo "ERROR: unsupported experiment: " ${EXPNAME}
+	exit 1
+	;;
+esac
+
+# This is hopeless if the Curveball directory is missing
+#
+if [ ! -d ${CBDIR} ]; then
+    echo "ERROR: Curveball is not installed"
+    exit 1
+fi
+
+# Get sudo now, because we're likely to need it later.
+${SUDO} /bin/true
+if [ $? -ne 0 ]; then
+    echo "ERROR: inadequate privs"
+    exit 1
+fi
+
+# Before starting anything, make sure that everything is shut down.
+#
+${CBSCRIPTS}/cb-shutdown
+
+case ${FULLNAME} in
+    dr.cb-min*|dr.cb-pico*|dr.cb-full*|dr.cb-five*|dr.cb-qemu*)
+	DP=dp
+	DECOY=decoy
+	CLIENT=client
+
+	echo "NOTE: THE DP MUST START BEFORE THE DR"
+	echo "STARTING DR..."
+	echo "${SUDO} ${CBSCRIPTS}/dr.py -d ${DP}:4001 \
+		--decoyname=${DECOY} --clientname=${CLIENT} \
+		$EXTRA_DR_FLAGS"
+	${SUDO} ${CBSCRIPTS}/dr.py -d ${DP}:4001 \
+		--decoyname=${DECOY} --clientname=${CLIENT} \
+		$EXTRA_DR_FLAGS
+	exit $?
+	;;
+
+    *)
+	# It's not an error to fall through.  It just means that
+	# this node is not handled by a specific rule.
+	;;
+
+esac
+
+# As long as we use the convention that:
+#
+# - clients are named "client[0-9]*"
+# - coverts are named "covert[0-9]*"
+# - decoys are named "decoys[0-9]*"
+# - there's only one quilt node, named "quilt"
+# 
+# then many of the cases are really simple
+
+case ${SHORTNAME} in
+    client|client[0-9]*)
+	echo "ERROR: the client must be started by hand."
+	exit 1
+	;;
+
+    filter|filter[0-9]*)
+	echo "ERROR: the filter cannot be started by this script."
+	exit 1
+	;;
+
+    router|router[0-9]*)
+	echo "ERROR: non-Curveball routers cannot be started by this script."
+	exit 1
+	;;
+
+    covert|covert[0-9]*)
+	echo "STARTING COVERT..."
+	echo "${SUDO} ${CBSCRIPTS}/mini-httpd -q"
+	${SUDO} ${CBSCRIPTS}/mini-httpd -q
+	exit $?
+	;;
+
+    decoy|decoy[0-9]*)
+	echo "STARTING DECOY..."
+	echo "${SUDO} ${CBSCRIPTS}/mini-httpd -q"
+	${SUDO} ${CBSCRIPTS}/mini-httpd -q
+	exit $?
+	;;
+
+    dp|dp[0-9]*)
+	echo "Creating sentinels and Bloom filters..."
+	make_sents
+
+	echo "STARTING DP..."
+	echo "${SUDO} ${CBSCRIPTS}/decoyproxy.py -s"
+	${SUDO} ${CBSCRIPTS}/decoyproxy.py -s
+
+	echo "${SUDO} ${CBSCRIPTS}/decoyproxy.py -t $EXTRA_DP_FLAGS"
+	${SUDO} ${CBSCRIPTS}/decoyproxy.py -t $EXTRA_DP_FLAGS
+	exit $?
+	;;
+
+    drp|drp[0-9])
+	echo "Creating sentinels and Bloom filters..."
+	make_sents
+
+	echo "STARTING DP and DR combo..."
+	echo "${SUDO} ${CBSCRIPTS}/dr-combo"
+	${SUDO} ${CBSCRIPTS}/dr-combo
+	;;
+
+    quilt|quilt[0-9])
+	echo "Starting quilt node..."
+	${SUDO} ${CBSCRIPTS}/decoyproxy.py -s
+	cd ${CBSCRIPTS}; ${SUDO} ./quilt-server
+	;;
+
+    *)
+	echo "ERROR: unsupported node $FULLNAME"
+	exit 1
+	;;
+
+esac
+
+echo "ERROR: shouldn't have gotten here."
+exit 1

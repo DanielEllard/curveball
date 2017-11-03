@@ -1,0 +1,23 @@
+# Add the following lines to your /etc/hosts file when using the
+# quilt-demo.imn core configuration
+
+10.0.0.10 client src
+10.0.0.1 filter
+
+10.0.1.10 quilt
+10.0.8.10 covert
+
+10.0.1.3 dr0
+10.0.20.10 decoy0
+10.0.3.10 dp0
+
+10.0.1.4 dr1
+10.0.4.10 decoy1
+10.0.5.10 dp1
+
+10.0.1.5 dr2
+10.0.6.10 decoy2
+10.0.7.10 dp2
+
+10.0.1.2 router
+10.0.8.10 qcovert

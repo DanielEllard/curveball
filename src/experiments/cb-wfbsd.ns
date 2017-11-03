@@ -1,0 +1,43 @@
+# Nearly minimal experiment for Curveball on DETER,
+# with a FreeBSD node (decoy1) to use as the decoy or covert
+# Stripped-down 5-node network configuration: no filter node.
+
+set ns [new Simulator]
+source tb_compat.tcl
+
+set covert [$ns node]
+tb-set-node-os $covert u1204+cb+click14
+
+set decoy0 [$ns node]
+tb-set-node-os $decoy0 u1204+cb+click14
+
+set decoy1 [$ns node]
+tb-set-node-os $decoy1 FBSD91-64-STD
+
+set dp [$ns node]
+tb-set-node-os $dp u1204+cb+click14
+
+set dr [$ns node]
+tb-set-node-os $dr u1204+cb+click14
+
+set client [$ns node]
+tb-set-node-os $client u1204+cb+click14
+
+# Links
+set link0 [$ns duplex-link $client $dr 1000000.0kb 0.0ms DropTail]
+tb-set-ip-link $client $link0 10.0.1.1
+tb-set-ip-link $dr $link0 10.0.1.2
+
+# Lans
+set internet [$ns make-lan "$covert $decoy0 $decoy1 $dp $dr" 1000000.0kb 0.0ms]
+tb-set-ip-lan $dr $internet 10.0.0.1
+tb-set-ip-lan $dp $internet 10.0.0.2
+tb-set-ip-lan $decoy0 $internet 10.0.0.3
+tb-set-ip-lan $covert $internet 10.0.0.4
+tb-set-ip-lan $decoy1 $internet 10.0.0.5
+tb-set-netmask $internet "255.255.255.0"
+
+# Static-old configures once at exp. creation time
+$ns rtproto Static-old
+$ns run
+

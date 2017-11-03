@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="744.09448819"
+   height="1052.3622047"
+   id="svg5247"
+   version="1.1"
+   inkscape:version="0.48.3.1 r9886"
+   sodipodi:docname="New document 18">
+  <defs
+     id="defs5249">
+    <linearGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient5031"
+       id="linearGradient5226"
+       gradientUnits="userSpaceOnUse"
+       x1="427.95276"
+       y1="52.362175"
+       x2="427.95276"
+       y2="144.95477" />
+    <linearGradient
+       inkscape:collect="always"
+       id="linearGradient5031">
+      <stop
+         style="stop-color:#000000;stop-opacity:1;"
+         offset="0"
+         id="stop5033" />
+      <stop
+         style="stop-color:#000000;stop-opacity:0;"
+         offset="1"
+         id="stop5035" />
+    </linearGradient>
+    <filter
+       color-interpolation-filters="sRGB"
+       inkscape:collect="always"
+       id="filter5027">
+      <feGaussianBlur
+         inkscape:collect="always"
+         stdDeviation="1.0683761"
+         id="feGaussianBlur5029" />
+    </filter>
+    <linearGradient
+       y2="144.95477"
+       x2="427.95276"
+       y1="52.362175"
+       x1="427.95276"
+       gradientUnits="userSpaceOnUse"
+       id="linearGradient5245"
+       xlink:href="#linearGradient5031"
+       inkscape:collect="always" />
+    <linearGradient
+       y2="174.95477"
+       x2="427.95276"
+       y1="52.362175"
+       x1="427.95276"
+       gradientUnits="userSpaceOnUse"
+       id="linearGradient5394"
+       xlink:href="#linearGradient5417"
+       inkscape:collect="always" />
+    <linearGradient
+       id="linearGradient5417"
+       inkscape:collect="always">
+      <stop
+         id="stop5419"
+         offset="0"
+         style="stop-color:#000000;stop-opacity:1;" />
+      <stop
+         id="stop5421"
+         offset="1"
+         style="stop-color:#ffffff;stop-opacity:1" />
+    </linearGradient>
+    <filter
+       color-interpolation-filters="sRGB"
+       inkscape:collect="always"
+       id="filter5027-3">
+      <feGaussianBlur
+         inkscape:collect="always"
+         stdDeviation="1.0683761"
+         id="feGaussianBlur5029-9" />
+    </filter>
+    <linearGradient
+       y2="174.95477"
+       x2="427.95276"
+       y1="52.362175"
+       x1="427.95276"
+       gradientUnits="userSpaceOnUse"
+       id="linearGradient5440"
+       xlink:href="#linearGradient5417"
+       inkscape:collect="always" />
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="0.35"
+     inkscape:cx="375"
+     inkscape:cy="520"
+     inkscape:document-units="px"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     inkscape:window-width="513"
+     inkscape:window-height="438"
+     inkscape:window-x="0"
+     inkscape:window-y="24"
+     inkscape:window-maximized="0" />
+  <metadata
+     id="metadata5252">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       sodipodi:type="arc"
+       style="fill:url(#linearGradient5440);fill-opacity:1;filter:url(#filter5027-3)"
+       id="path4997"
+       sodipodi:cx="427.77777"
+       sodipodi:cy="72.732552"
+       sodipodi:rx="70.370369"
+       sodipodi:ry="70.370369"
+       d="m 498.14814,72.732552 a 70.370369,70.370369 0 1 1 -140.74074,-4e-6"
+       sodipodi:start="0"
+       sodipodi:end="3.1415927"
+       sodipodi:open="true"
+       transform="matrix(1,0,0,-1,-67.777771,651.70849)" />
+  </g>
+</svg>

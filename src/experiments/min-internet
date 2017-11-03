@@ -1,0 +1,192 @@
+#!/usr/bin/env python
+#
+# This material is based upon work supported by the Defense Advanced
+# Research Projects Agency under Contract No. N66001-11-C-4017.
+#
+# Copyright 2014 - Raytheon BBN Technologies Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.  See the License for the specific language governing
+# permissions and limitations under the License.
+
+
+"""
+Minimal test rig.  Does not support Android or Darwin tethering yet
+directly, although it does support Win7 connection from another
+VirtualBox VM.
+
+The topology is initially the following (see min-internet.imn):
+
+  eth3
+   |
+  client
+   |
+  filter
+   |
+   dr
+   |
+(switch)
+   |
+   |--- <internet via eth1>
+   |
+   |--- dp
+   |
+   |--- decoy
+   |
+   |--- covert
+   |
+   |--- quilt
+
+Note that the CORE simulation will commandeer the eth2 device and put it in
+promiscuous mode.  The eth2 device should be a VM NAT device.
+
+See: https://cureball.ir.bbn.com/projects/curveball/wiki/QuiltDemo
+
+for instructions to set up your VM (the instructions are the same as
+for the earlier quilt-demo).
+"""
+
+import os
+import pexpect
+import sys
+import time
+
+from optparse import OptionParser
+
+# The directory that this executable lives in.
+#
+DIRNAME = os.path.normpath(
+        os.path.abspath(os.path.dirname(sys.argv[0]) or '.'))
+sys.path.append(os.path.normpath(os.path.join(DIRNAME,  '..', 'python')))
+
+from curveball_net import CurveballNet
+
+class MinInternetTest(CurveballNet):
+    """
+    CurveballNet subclass for the MinInternetTest in tethered mode
+    """
+
+    def __init__(self):
+        parser = OptionParser()
+        self.add_parse_opts(parser)
+        (self.opts, _) = parser.parse_args()
+
+        # Don't use the crypto keys for the demo (for now)
+        self.opts.crypto = False
+        _dr2decoy = {'dr' : 'decoy'}
+
+        super(MinInternetTest, self).__init__(self.opts,
+                drs={'dr': 'dp'},
+                quilt=None,
+                coverts=['covert'],
+                dr2decoy=_dr2decoy)
+
+        self.cmds['diagnostics'] = 'run some (mostly broken) diagnostic tests'
+        self.cmds['speed_test'] = \
+                'iperf throughput test between client and covert via curveball'
+
+    def add_parse_opts(self, parser):
+        super(MinInternetTest, self).add_parse_opts(parser)
+
+        return parser
+
+    def speed_test(self, args):
+        """
+        args (optional) = number of times to run speed test
+        """
+
+        loops = 1
+        if args:
+            loops = int(args)
+
+        client = self.create_spare('client')
+        covert = self.create_spare('covert')
+
+        covert.run('iperf -s -p 55221')
+        time.sleep(2)
+
+        out = []
+
+        for _ in range(loops):
+            if self.opts.vpn:
+                client.run('iperf -c covert -p 55221')
+            else:
+                client.run('tsocks iperf -c covert -p 55221')
+            try:
+                client.expect('connected', timeout=10)
+                print "IPerf connected.. running test"
+            except (pexpect.EOF, pexpect.TIMEOUT):
+                print "Client could not connect to covert iperf server"
+                client.commandeer()
+                return None
+
+            try:
+                data = client.expect('/sec', timeout=25)
+                (speed, units) = data[0].split(' ')[-2:]
+                units += '/sec'
+                print "%s %s" % (speed, units)
+                out.append((float(speed), units))
+
+            except (pexpect.EOF, pexpect.TIMEOUT):
+                print "Did not get a measurement"
+                return None
+
+        client.controlc()
+        covert.controlc()
+
+        return out
+
+    def test_pings(self):
+        pairs = []
+        for src in self.servers:
+            for dst in [x for x in self.servers if x != src]:
+                pairs.append((src, dst))
+
+        #unallowable = [('client','dp'), ('client', 'google.com')]
+
+        for (src, dst) in pairs:
+            latency = self.ping(src, dst)
+            if latency is None:
+                print "%s unable to ping %s" % (src, dst)
+                print "Exit the script and try restarting your CORE topology"
+            else:
+                print "%s -- %s: %f" % (src, dst, latency)
+
+
+    def test_services(self):
+        # Don't just return silently (does silence indicate things are
+        # good? bad?
+        print "test services not implemented yet"
+
+    def diagnostics(self, args):
+        """ See if we can find out what's wrong """
+        self.test_pings()
+        #self.test_services()
+        self.test_decoy_routing(args)
+
+    def start_network(self, args):
+        if self.transport == 'core':
+            self.stop_network(None)
+        # TODO: might want to confirm that we can ping across the network
+        # before we start things running.
+        super(MinInternetTest, self).start_network(args)
+
+def main():
+    demo = MinInternetTest()
+    demo.connect()
+
+    if not demo.opts.batch:
+        demo.interact()
+    else:
+        demo.run_batch_mode(demo.opts.batch)
+
+if __name__ == '__main__':
+    main()

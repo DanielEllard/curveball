@@ -1,0 +1,47 @@
+# "Hello World" experiment for Curveball on DETER
+
+set ns [new Simulator]
+source tb_compat.tcl
+
+set covert [$ns node]
+tb-set-node-os $covert u1204+cb+click14
+
+set decoy [$ns node]
+tb-set-node-os $decoy u1204+cb+click14
+
+set dp [$ns node]
+tb-set-node-os $dp u1204+cb+click14
+
+set dr [$ns node]
+tb-set-node-os $dr u1204+cb+click14
+
+set quilt [$ns node]
+tb-set-node-os $quilt u1204+cb+click14
+
+set filter [$ns node]
+tb-set-node-os $filter u1204+cb+click14
+
+set client [$ns node]
+tb-set-node-os $client u1204+cb+click14
+
+# Links
+set link0 [$ns duplex-link $filter $client 1000000.0kb 0.0ms DropTail]
+tb-set-ip-link $client $link0 10.0.1.1
+tb-set-ip-link $filter $link0 10.0.1.2
+
+set link1 [$ns duplex-link $dr $filter 1000000.0kb 0.0ms DropTail]
+tb-set-ip-link $filter $link1 10.0.2.1
+tb-set-ip-link $dr $link1 10.0.2.2
+
+# Lans
+set internet [$ns make-lan "$covert $decoy $dp $dr $quilt" 1000000.0kb 0.0ms]
+tb-set-ip-lan $dr $internet 10.0.0.1
+tb-set-ip-lan $dp $internet 10.0.0.2
+tb-set-ip-lan $decoy $internet 10.0.0.3
+tb-set-ip-lan $covert $internet 10.0.0.4
+tb-set-ip-lan $quilt $internet 10.0.0.5
+tb-set-netmask $internet "255.255.255.0"
+
+# Static-old configures once at exp. creation time
+$ns rtproto Static-old
+$ns run

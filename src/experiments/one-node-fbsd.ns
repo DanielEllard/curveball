@@ -1,0 +1,12 @@
+# Single node portability experiment for Curveball on DETER
+
+set ns [new Simulator]
+source tb_compat.tcl
+
+set one [$ns node]
+
+tb-set-node-os $one FBSD8-STD
+
+# Static-old configures once at exp. creation time
+$ns rtproto Static-old
+$ns run

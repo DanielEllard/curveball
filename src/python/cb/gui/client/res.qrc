@@ -1,0 +1,11 @@
+<RCC>
+  <qresource prefix="newPrefix">
+    <file>client-main.ui</file>
+    <file>speedometer3.png</file>
+    <file>speedometer3_base.png</file>
+    <file>tick.png</file>
+    <file>traffic-light-green.jpg</file>
+    <file>traffic-light-red.jpg</file>
+    <file>speedometer.png</file>
+  </qresource>
+</RCC>

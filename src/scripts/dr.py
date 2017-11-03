@@ -1,0 +1,308 @@
+#!/usr/bin/env python
+#
+# This material is based upon work supported by the Defense Advanced
+# Research Projects Agency under Contract No. N66001-11-C-4017.
+#
+# Copyright 2014 - Raytheon BBN Technologies Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.  See the License for the specific language governing
+# permissions and limitations under the License.
+
+
+"""
+Runs the DR software (both click and the dr2dp code)
+"""
+
+import atexit
+import optparse
+import os
+import os.path
+import re
+import shlex
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+# The directory that this executable lives in.
+#
+DIRNAME = os.path.normpath(
+        os.path.abspath(os.path.dirname(sys.argv[0]) or '.'))
+
+sys.path.append(os.path.normpath(os.path.join(DIRNAME, '..', 'python')))
+
+import cb.util.unbuffered
+cb.util.unbuffered.unbuffer()
+
+import cb.util.cblogging
+
+from twisted.internet import epollreactor
+epollreactor.install()
+from twisted.internet import reactor
+
+from cb.dr2dp.dr2dp_dr import DR2DP_DR
+import cb.util.interface as interface
+
+
+def parse_args():
+    parser = optparse.OptionParser()
+
+    click_exe = os.path.normpath(
+            os.path.join(DIRNAME, '..',
+                    'click', 'curveball', 'decoy-router.click'))
+
+    parser.add_option("-d", "--decoyproxy",
+                      default="dp:4001",
+                      help="Proxy server host:port. "
+                      "Defaults to dp:4001",
+                      metavar="IPADDR:PORT")
+
+    parser.add_option("-i", "--iface",
+                      default="",
+                      help="Interface to listen on for client->decoy packets")
+
+    parser.add_option("-r", "--riface",
+                      default="",
+                      help="Interface to listen on for decoy->client packets")
+
+    parser.add_option("--decoyname",
+                      default="decoy",
+                      help="Name of a host after the DR on the path " +
+			    " from the client to the decoy (default=decoy)")
+
+    parser.add_option("--clientname",
+                      default="client",
+                      help="Name of a host prior to the DR on the path " +
+			    " from the client to the decoy (default=client)")
+
+    parser.add_option("-s", "--script",
+                      metavar="FILENAME",
+                      default=click_exe,
+                      help="Click script to run. "
+                      "default = [%default]")
+
+    parser.add_option("-k", "--kernel",
+                      action="store_true",
+                      help="Use the kernel router")
+
+    parser.add_option("--socket",  default="/tmp/curveball",
+                      metavar="FILENAME",
+                      help="Unix domain socket between DR2DP and Click. "
+                           "Defaults to '/tmp/curveball.'")
+
+    parser.add_option("--permit-deadbeef", default=False,
+                      action="store_true",
+                      help="Permit the 'DEADBEEF' sentinel")
+
+    (opts, args) = parser.parse_args()
+    return opts
+
+def _get_addr_from_route(route):
+    # IPv4 only.
+    out = route.split('\n')[0].strip()
+    addr_re = 'src ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})'
+    m = re.search(addr_re, out)
+    assert(m)
+    return m.group(1)
+
+def get_dr_client_addr( client_name ):
+    """ The DR needs to know the IP address of the interface that it uses
+    to reach the client.  This is the interface that it monitors. """
+
+    try:
+        socket.gethostbyname(client_name)
+    except:
+	print "ERROR: No IP address for --clientname %s" % client_name
+        sys.exit(1)
+    proc = subprocess.Popen('ip route get %s' % socket.gethostbyname(client_name),
+                                 shell=True, stdout=subprocess.PIPE)
+    (out,_) = proc.communicate()
+    addr = _get_addr_from_route(out)
+    return addr
+
+
+def get_dr_decoy_addr( decoy_name ):
+    """ The DR needs to know the IP address of the interface that it uses
+        to reach the decoy. This is an interface that it monitors. """
+
+    try:
+        socket.gethostbyname(decoy_name)
+    except:
+	print "ERROR: No IP address for --decoyname %s" % decoy_name
+        sys.exit(1)
+
+    proc = subprocess.Popen('ip route get %s' % socket.gethostbyname(decoy_name),
+                            shell=True, stdout=subprocess.PIPE)
+    (out,_) = proc.communicate()
+    addr = _get_addr_from_route(out)
+    return addr
+
+
+def run_click(opts):
+    # Start the click router
+    click_ip = get_dr_client_addr( opts.clientname )
+    click_r_ip = get_dr_decoy_addr( opts.decoyname )
+
+    iface = interface.ip_to_interface(click_ip)
+    r_iface = interface.ip_to_interface(click_r_ip)
+
+    if opts.iface:
+        iface = opts.iface
+
+    if opts.riface:
+        r_iface = opts.riface
+
+    print "Using %s to capture client->decoy packets" % iface
+    print "Using %s to capture decoy->client packets" % r_iface
+
+    if iface == r_iface:
+	print "ERROR: iface and r_iface must be different"
+	sys.exit(1)
+
+    try:
+        print 'opts.script = %s' % opts.script
+        if opts.kernel:
+            cmd = 'click-install %s -V DEV=%s REVERSE_DEV=%s LOCAL_IP=%s' % (opts.script, iface, r_iface, click_ip)
+
+            if not opts.permit_deadbeef:
+                cmd += ' TLS_SENTINEL="\'\'" HTTP_SENTINEL="\'\'"'
+            os.system(cmd)
+        else:
+
+            # turn generic receive offload to off on client-side interface
+            try:
+                cmd = "ethtool -K %s gro off" % (iface)
+                subprocess.check_call(cmd, shell=True)
+            except:
+                print "failed to turn gro off on interface %s" % (iface)
+
+            # turn generic receive offload to off on decoy-side interface
+            try:
+                cmd = "ethtool -K %s gro off" % (r_iface)
+                subprocess.check_call(cmd, shell=True)
+            except:
+                print "failed to turn gro off on interface %s" % (r_iface)
+
+            cmd = "click %s LOCAL_IP=%s DEV=%s REVERSE_IP=%s REVERSE_DEV=%s" % (opts.script, click_ip, iface, click_r_ip, r_iface)
+
+            if not opts.permit_deadbeef:
+                cmd += ' TLS_SENTINEL="\'\'" HTTP_SENTINEL="\'\'"'
+
+            click = subprocess.Popen(cmd, shell=True)
+            time.sleep(3)
+    except OSError, e:
+        print "Failed to execute click"
+        sys.exit(1)
+
+
+def handle_signals(signum, frame):
+    """
+    Cleanup and exit with an error status.
+
+    Used by signal handlers
+    """
+
+    print 'Stopping due to signal %d' % signum
+
+    try:
+        reactor.stop()
+    except:
+        cleanup()
+        sys.exit(1) 
+
+def cleanup():
+    """
+    Cleanup and exit.
+
+    Make sure that the dr's didn't leave any state behind:
+    click processes and/or iptables rules.
+    """
+
+    cb_cleanup_dr = os.path.join(DIRNAME, 'cb-cleanup-dr')
+    os.system(cb_cleanup_dr)
+
+def main():
+    opts = parse_args()
+
+    signal.signal(signal.SIGHUP, handle_signals)
+    signal.signal(signal.SIGINT, handle_signals)
+    signal.signal(signal.SIGTERM, handle_signals)
+
+    if opts.kernel:
+        os.system('sudo rm /dev/click_user0')
+        os.system('sudo rm /dev/click_user1')
+
+    if opts.kernel:
+        run_click(opts)
+
+    if opts.kernel:
+        from cb.dr2dp.dr2dp_dr_kernel import DR2DP_DR
+        opts.socket='/dev/click_user0'
+        opts.socket_wr='/dev/click_user1'
+
+        os.system('sudo mknod /dev/click_user0 c 241 0')
+        os.system('sudo mknod /dev/click_user1 c 241 1')
+    else:
+        from cb.dr2dp.dr2dp_dr import DR2DP_DR
+
+    dp_addr, dp_port = opts.decoyproxy.split(':')
+    print 'socket = %s' % opts.socket
+
+    try:
+        socket.gethostbyname(dp_addr)
+        print "Using %s as decoyproxy host name" % (dp_addr)
+    except:
+        print "No IP address for decoy proxy named %s, exiting" % dp_addr
+        sys.exit(1)
+
+    try:
+        if opts.kernel:
+            dr2dp_dr = DR2DP_DR((dp_addr, int(dp_port)), opts.socket,
+                    opts.socket_wr)
+        else:
+            dr2dp_dr = DR2DP_DR((dp_addr, int(dp_port)), opts.socket,
+                    lambda: run_click(opts))
+    except BaseException, exc:
+        msg = str(exc)
+        if msg:
+            print 'ERROR starting DR: %s' % msg
+        else:
+            print 'ERROR starting DR'
+        sys.exit(1)
+
+    print "DR Running" # experiment scripts expect to see this
+
+    try:
+        status = 0
+        reactor.run()
+    except BaseException, exc:
+        status = 1
+
+    print 'DR exiting'
+    cleanup()
+    sys.exit(status)
+
+if __name__ == '__main__':
+
+    #  No longer needed. cb-noc-cron-dr deprecated. cbkm run via cron
+    #
+    # if socket.getfqdn() == 'romeo.nct.bbn.com':
+    #     SETUP_SCRIPT = '/etc/cron.hourly/cb-noc-cron-dr'
+    #     if not os.path.exists(SETUP_SCRIPT):
+    #         print 'ERROR: setup script %s missing' % SETUP_SCRIPT
+    #         exit(1)
+
+    #     os.system(SETUP_SCRIPT)
+
+    exit(main())

@@ -1,0 +1,31 @@
+# Super-tiny Curveball experiment
+#
+# Stripped-down 3-node network configuration:
+# no filter node or covert node (use the decoy as the covert)
+# and run the DP on the DR using dr-combo.
+
+set ns [new Simulator]
+source tb_compat.tcl
+
+set decoy [$ns node]
+tb-set-node-os $decoy u1204+cb+click14
+
+set drp [$ns node]
+tb-set-node-os $drp u1204+cb+click14
+
+set client [$ns node]
+tb-set-node-os $client u1204+cb+click14
+
+# Links
+set link0 [$ns duplex-link $client $drp 1000000.0kb 0.0ms DropTail]
+tb-set-ip-link $client $link0 10.0.1.1
+tb-set-ip-link $drp $link0 10.0.1.2
+
+set link1 [$ns duplex-link $drp $decoy 1000000.0kb 0.0ms DropTail]
+tb-set-ip-link $drp $link0 10.0.0.1
+tb-set-ip-link $client $link0 10.0.0.2
+
+# Static-old configures once at exp. creation time
+$ns rtproto Static-old
+$ns run
+
