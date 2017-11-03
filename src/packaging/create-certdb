@@ -20,7 +20,7 @@
 # Assumes that we're running on Ubuntu, 64-bit, and NSS was compiled
 # with either DBG or OPT.
 #
-# This must be run inside the packaging direction.  The paths used
+# This must be run inside the packaging directory  The paths used
 # are relative to the packaging directory.
 
 

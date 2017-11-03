@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -121,7 +125,7 @@ def make_sentbf_file(utc, out_dir, nhours=1, curr_sbf_fname=None,
     return 0
 
 def make_sent_file(utc, out_dir, key_file, num_sentinels, safe=False,
-        do_mse=True):
+        do_mse=False):
     """
     Create a sentinel file in out_dir for the given
     key_file and num_sentinels for the given utc.

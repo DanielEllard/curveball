@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +72,7 @@ TLSHelloSentinelDetector::initialize(ErrorHandler *errh)
 }
 
 void
-TLSHelloSentinelDetector::push(int, Packet *p)
+TLSHelloSentinelDetector::push_packet(int, Packet *p)
 {
     assert(p->has_network_header());
     assert(p->ip_header()->ip_p == IP_PROTO_TCP);

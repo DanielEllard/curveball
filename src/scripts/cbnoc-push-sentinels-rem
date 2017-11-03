@@ -98,8 +98,11 @@ push_dp() {
 	# files to avoid a race condition: we can't use the
 	# sentinel files until the DH exp files are there
 	#
-	${RSYNC} -r --delay-updates ${SRCDIR}/*.${DHEXP_SUFFIX} \
-		${DP_USER}@${dp}:${dp_dest_dir}/
+	# NOTE: we don't generate DH exp in all versions.
+	# OMITTED FROM THIS RELEASE
+	#
+	# ${RSYNC} -r --delay-updates ${SRCDIR}/*.${DHEXP_SUFFIX} \
+	# 	${DP_USER}@${dp}:${dp_dest_dir}/
 
 	${RSYNC} -r --delay-updates ${SRCDIR}/*.${SENT_SUFFIX} \
 		${DP_USER}@${dp}:${dp_dest_dir}/

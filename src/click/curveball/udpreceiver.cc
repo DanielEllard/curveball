@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -89,44 +93,95 @@ UDPReceiver::initialize(ErrorHandler *)
     return 0;
 }
 
+#if HAVE_BATCH
 void
-UDPReceiver::push(int, Packet *p)
+UDPReceiver::push_batch(int, PacketBatch *batch)
+{
+    Packet *current = batch;
+    Packet *last = batch;
+
+    int count = batch->count();
+    int forward = 0, drop = 0;
+
+    while (current != NULL) {
+        if (forward_incoming_pkt(current)) {
+            last = current;
+            current = current->next();
+            forward++;
+            continue;
+        }
+
+        Packet *pkt = current;
+
+        if (current == batch) {
+            batch = PacketBatch::start_head(current->next());
+            current = batch;
+            last = batch;
+        } else {
+            current = current->next();
+            last->set_next(current);
+        }
+
+        pkt->set_next(NULL);
+        pkt->kill();
+        drop++;
+    }
+
+    assert(count == (forward + drop));
+
+    if (batch != NULL) {
+        batch->set_count(forward);
+        batch->set_tail(last);
+        output_push_batch(0, batch);
+    }
+}
+#endif
+
+void
+UDPReceiver::push_packet(int, Packet *p)
+{
+    if (forward_incoming_pkt(p)) {
+        output(0).push(p);
+    } else {
+        p->kill();
+    }
+}
+
+bool
+UDPReceiver::forward_incoming_pkt(Packet *p)
 {
     assert(p->has_network_header());
     assert(p->ip_header()->ip_p == IP_PROTO_UDP);
 
     // simply forward packet fragments
     if (IP_ISFRAG(p->ip_header())) {
-        output(0).push(p);
-        return;
+        return true;
     }
 
     assert(p->has_transport_header());
 
-    if (ntohs(p->udp_header()->uh_dport) == _port) {
-        process_notification_pkt(p);
-
-    } else {
-        output(0).push(p);
+    // simply forward non-curveball udp packets
+    if (ntohs(p->udp_header()->uh_dport) != _port) {
+        return true;
     }
+
+    return process_notification_pkt(p);
 }
 
-void
+bool
 UDPReceiver::process_notification_pkt(Packet *p)
 {
     if (p->ip_header()->ip_src.s_addr == _local_addr.addr()) {
         click_chatter("UDPReceiver::process_notification_pkt: "
                       "received local udp notification");
         // don't forward --- routing loop???
-        p->kill();
-        return;
+        return false;
     }
 
     if (p->length() < sizeof(click_ip) +
                       sizeof(click_udp) +
                       sizeof(dr_flow_notification_msg)) {
-        output(0).push(p);
-        return;
+        return true;
     }
 
     const dr_flow_notification_msg *msg =
@@ -137,8 +192,7 @@ UDPReceiver::process_notification_pkt(Packet *p)
     const char *valid_sentinel = "\xba\xad\xfe\xed";
     if (strncmp((const char *)msg->dr_sentinel,
                 valid_sentinel, sizeof(valid_sentinel)) != 0) {
-        output(0).push(p);
-        return;
+        return true;
     }
 
     IPFlowID flow_key(IPAddress(msg->src_addr), msg->src_port,
@@ -152,8 +206,7 @@ UDPReceiver::process_notification_pkt(Packet *p)
         click_chatter("UDPReceiver::process_notification_pkt: "
                       "invalid packet length");
         // don't forward --- malformed packet
-        p->kill();
-        return;
+        return false;
     }
 
     const char *sentinel = reinterpret_cast<const char *>(
@@ -168,7 +221,7 @@ UDPReceiver::process_notification_pkt(Packet *p)
         (*d)->incoming_udp_notification(flow_key, flow_sentinel);
     }
 
-    output(0).push(p);
+    return true;
 }
 
 CLICK_ENDDECLS

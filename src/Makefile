@@ -1,7 +1,11 @@
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -64,6 +68,7 @@ default:	install
 #
 clean:		.CLEAN_NSS .CLEAN_CLICK .CLEAN_LOGS
 	rm -rf python/build
+	rm -rf tmp-debbuild
 	sudo rm -rf ../build
 
 # PACKAGES: things curveball needs to run and/or test.
@@ -178,7 +183,8 @@ install_tree:
 install_click:	.CLICK
 	$(BUILD_TREE_TOOL) create test
 	-mkdir -p $(BUILD_TREE)/click/curveball
-	cp click/curveball/decoy-router.click $(BUILD_TREE)/click/curveball/
+	cp click/curveball/fastclick-router.click $(BUILD_TREE)/click/curveball/
+	cp click/curveball/fastclick-multi-dp.click $(BUILD_TREE)/click/curveball/
 
 install_scripts:
 	cd python ; ../packaging/python_setup.py install \

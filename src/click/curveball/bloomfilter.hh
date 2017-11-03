@@ -88,7 +88,7 @@ class BloomFilter { public:
     void insert(const char *data, int len);
 
     // Determine if an element is a member of the Bloom filter.
-    bool member(const char *data, int len) const;
+    bool member(const char *data, int len);
 
     // Set this Bloom filter to be a copy of the given Bloom filter.
     BloomFilter &operator=(const BloomFilter &x);
@@ -121,6 +121,7 @@ class BloomFilter { public:
     // Bit array of size 2^_hash_size bits.
     Bitvector		_bit_table;
 
+    bool		_print_uninit_mesg;
 };
 
 CLICK_ENDDECLS

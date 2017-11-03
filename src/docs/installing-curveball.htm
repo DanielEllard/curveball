@@ -1,9 +1,9 @@
 <html>
   <head>
-    <title>Installing and setting up BBN Curveball - version 2017.05.12</title>
+    <title>Installing and setting up BBN Curveball - version 2017.05.23 </title>
   </head>
   <body>
-    <h1>Installing and setting up BBN Curveball - version 2017.05.12</h1>
+    <h1>Installing and setting up BBN Curveball - version 2017.05.23 </h1>
 
     <p>
     This document describes how to install BBN Curveball from a Debian package
@@ -27,19 +27,19 @@
     </p>
 
     <pre>
-                              + -- decoy
-                              |
-    client -- filter -- dr -- + -- dp
-                              |
-                              + -- covert
+                        dp     + -- decoy
+                        |      |
+    client -- filter -- dr --- +
+                               |
+                               + -- covert
     </pre>
 
     <p>
     In this example network,
-    the <tt>filter</tt> and <tt>dr</tt> nodes are routers,
+    the <tt>filter</tt> is a router, the <tt>dr</tt> is a bridge,
     and the <tt>client</tt>, <tt>decoy</tt>, <tt>dp</tt>,
     and <tt>covert</tt> are end hosts.
-    The essential properly of this network is that
+    The essential property of this network is that
     packets from the client to the decoy (or from any client
     to any decoy, if there are more than one of each) must
     traverse the decoy router <tt>dr</tt>.
@@ -50,7 +50,7 @@
     the goal of the <tt>client</tt> is to access
     a web site running on the <tt>covert</tt> node,
     but there are filters or firewall rules installed
-    on the <tt>filter</tt> router that the client from access
+    on the <tt>filter</tt> router that prevents the client from accessing
     <tt>covert</tt> directly.
     The <tt>filter</tt> does permit the client to
     access a web site running on the <tt>decoy</tt> node.

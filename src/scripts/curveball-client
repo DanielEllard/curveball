@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,6 +46,8 @@ DIRNAME = os.path.normpath(
         os.path.abspath(os.path.dirname(sys.argv[0]) or '.'))
 
 sys.path.append(os.path.normpath(os.path.join(DIRNAME, '..', 'python')))
+
+import cb.util.cblogging_setup
 
 import cb.util.cb_constants
 import cb.util.unbuffered
@@ -211,6 +217,10 @@ def parse_args(argv):
             default=False, action='store_true',
             help='Run slowly, to avoid overwhelming the DP')
 
+    parser.add_option('-S', '--srcaddr', dest='use_srcaddr',
+            metavar='IPADDR', type=str, default=None,
+            help='Bind to the given source addr instead of the default')
+
     (options, _args) = parser.parse_args(argv)
 
     # check that the user doesn't try to do ask for an impossible combination
@@ -292,7 +302,8 @@ def kill_client_agent():
 	# os.system('killall client-agent')
 
 def run_client_agent(decoy_host, decoy_port, tunnel_port,
-        use_real_sentinels, sentinel, use_unidirectional):
+        use_real_sentinels, sentinel, use_unidirectional,
+        use_srcaddr=None):
     """
     Run the client-agent, and attempt to connect to the given decoy_host and
     port.  If successful, return the subprocess.Popen instance of the process
@@ -355,6 +366,10 @@ def run_client_agent(decoy_host, decoy_port, tunnel_port,
 
         if use_unidirectional:
             cmd.append('-u')
+
+        if use_srcaddr:
+            cmd.append('-S')
+            cmd.append(use_srcaddr)
 
         use_shell = False
 
@@ -525,7 +540,8 @@ def init_client(opts, proxy_addr, decoy_addrs):
         else:
             agent = run_client_agent(decoy_addr[0], decoy_addr[1],
                                      opts.tunnel_port, opts.crypto,
-                                     sentinel, opts.unidirectional)
+                                     sentinel, opts.unidirectional,
+                                     opts.use_srcaddr)
 
         # If we're in probe mode, then try all of the candidate decoy hosts
         # and print the name of each successful decoy host.

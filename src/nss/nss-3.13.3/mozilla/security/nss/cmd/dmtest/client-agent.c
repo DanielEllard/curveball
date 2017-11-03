@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -501,6 +505,7 @@ static int http_request(PRFileDesc *ssl, char *hostname, PRUint16 port,
 	unsigned int request_suffix_len =
 		strlen(REQUEST_SUFFIX_TEMPLATE) + strlen(hostname) + 10;
 	unsigned char *request_suffix = malloc(request_suffix_len);
+	int rc;
 
 	if (request_suffix == NULL) {
 	    berr_exit("Failed to allocate request string");
@@ -516,9 +521,18 @@ static int http_request(PRFileDesc *ssl, char *hostname, PRUint16 port,
 	 * that has not been sent in the clear (preferably
 	 * not used at all).
 	 */
-	cb_stencil_send(ssl, NULL,
+	rc = cb_stencil_send(ssl, NULL,
 		stencil_key, 2 * CB_STENCIL_KEY_BYTES,
 		request_suffix);
+	if (rc != 0) {
+	    /* TODO: we should send something, even if it's
+	     * bogus, and then wait for the response before
+	     * exiting.  It looks strange to open a TLS
+	     * connection and then close it without sending
+	     * anything whatsoever.
+	     */
+	    berr_exit("Failed to create and/or send stencil");
+	}
     }
 
     /* Now read the server's response, assuming
@@ -722,6 +736,7 @@ int main(int argc, char **argv)
     unsigned char sentinel_label[CB_SENTINEL_LABEL_BYTES];
     unsigned char stencil_key[2 * 2 * CB_STENCIL_KEY_BYTES];
     SECStatus rv;
+    char *src_addr_txt = NULL;
 
     /* Assume bidirectional request by default */
     char *request_template = REQUEST_TEMPLATE_BI;
@@ -765,7 +780,7 @@ int main(int argc, char **argv)
 	fprintf(stderr, "%s: Curveball debugging enabled\n", progname);
     }
 
-    optstate = PL_CreateOptState(argc, argv, "A:c:dh:i:k:p:s:u");
+    optstate = PL_CreateOptState(argc, argv, "A:c:dh:i:k:p:s:S:u");
     while (PL_GetNextOpt(optstate) == PL_OPT_OK) {
 	switch (optstate->option) {
 	    case 'A':
@@ -813,6 +828,11 @@ int main(int argc, char **argv)
 		}
 		break;
 	    }
+	    case 'S': {
+		src_addr_txt = strdup(optstate->value);
+		break;
+	    }
+
 	    case 'u':
 		request_template = REQUEST_TEMPLATE_UNI;
 		CURVEBALL_TUNNEL_TYPE = CURVEBALL_UNIDIRECTIONAL_TUNNEL;
@@ -1001,6 +1021,28 @@ int main(int argc, char **argv)
     PR_InitializeNetAddr(PR_IpAddrNull, port, &na_server);
 
     sock = PR_NewTCPSocket();
+
+    if (src_addr_txt) {
+	PRNetAddr src_addr;
+	PRHostEnt src_addr_hp;
+	PRStatus status;
+
+	r = PR_GetHostByName(src_addr_txt, netdbbuf, PR_NETDB_BUF_SIZE,
+		&src_addr_hp);
+	if (r) {
+	    PR_snprintf(err, sizeof(err), "%s: Host name lookup failed for %s",
+		    progname, src_addr_txt);
+	    berr_exit(err);
+	}
+
+	PR_EnumerateHostEnt(0, &src_addr_hp, 0, &src_addr);
+	PR_InitializeNetAddr(PR_IpAddrNull, 0, &src_addr);
+
+	status = PR_Bind(sock, &src_addr);
+	if (status != PR_SUCCESS) {
+	    berr_exit("Cannot bind the src addr of the connection socket");
+	}
+    }
 
     if (NULL == SSL_ImportFD(NULL, sock)) {
         PR_snprintf(err, sizeof(err), "%s: Can't create SSL socket", progname);

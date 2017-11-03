@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,21 +25,36 @@
 #include "flowtable.hh"
 #include <click/packet.hh>
 #include <click/vector.hh>
+#include <clicknet/ether.h>
 #include <clicknet/ip.h>
 #include <clicknet/tcp.h>
 CLICK_DECLS
 
 
-void
+bool
 FlowEntry::add_pkt(Packet *p)
 {
-    Packet *q = p->clone();
+    Packet *q = WritablePacket::make(p->headroom(), p->data(), p->length(), 0);
+    if (q == NULL) {
+        click_chatter("FlowEntry::add_pkt: failed to make packet");
+        return false;
+    }
 
+    // set network and transport headers
+    assert(q->length() > sizeof(click_ip));
+
+    const click_ip *ip_hdr = (const click_ip *)(q->data());
+    unsigned int ip_hlen = ip_hdr->ip_hl << 2;
+
+    q->set_network_header(q->data());
+    q->set_transport_header(q->data() + ip_hlen);
+
+    // insert new packet into packet segment buffer
     if (_pktbuf == NULL) {
         q->set_prev((Packet *)NULL);
         q->set_next((Packet *)NULL);
         _pktbuf = q;
-        return;
+        return true;
     }
 
     Packet *pkt, *next_pkt;
@@ -50,6 +69,8 @@ FlowEntry::add_pkt(Packet *p)
     if (_maintain_buffer) {
         build_segment_buffer();
     }
+
+    return true;
 }
 
 bool
@@ -203,13 +224,13 @@ FlowTable::add_flow(Packet *p)
 
     // Check that a flow entry does not already exist.
     if (_flow_table.find(flow_key) != _flow_table.end()) {
-        click_chatter("FlowTable::add_flow: flow entry already exists %s",
-                      flow_key.unparse().c_str());
+        //click_chatter("FlowTable::add_flow: flow entry already exists %s",
+        //              flow_key.unparse().c_str());
         return;
     }
 
     // Instantiate new flow entry.
-    FlowEntry new_entry(ntohl(p->tcp_header()->th_seq));
+    FlowEntry new_entry(ntohl(p->tcp_header()->th_seq), flow_key);
 
     // Record any TCP options.
     const int option_offset = 20;
@@ -220,43 +241,103 @@ FlowTable::add_flow(Packet *p)
                                       option_length));
     }
 
+    // record ehternet information
+    assert(p->has_mac_header());
+    assert(p->headroom() >= p->mac_header_length());
+
+    if (p->mac_header_length() == sizeof(click_ether)) {
+        const click_ether * ether_hdr =
+            (const click_ether *)(p->data() - sizeof(click_ether));
+
+        new_entry.set_ethernet_addrs(EtherAddress(ether_hdr->ether_shost),
+                                     EtherAddress(ether_hdr->ether_dhost));
+
+    } else if (p->mac_header_length() == sizeof(click_ether_vlan)) {
+        const click_ether_vlan * ether_hdr = 
+            (const click_ether_vlan *)(p->data() - sizeof(click_ether_vlan));
+
+        new_entry.set_ethernet_addrs(EtherAddress(ether_hdr->ether_shost),
+                                     EtherAddress(ether_hdr->ether_dhost));
+
+        new_entry.set_vlan_tag(ether_hdr->ether_vlan_tci);
+
+    } else {
+        click_chatter("FlowTable::add_flow: unknown ether type");
+    }
+
     // Insert entry into flow table.
     _flow_table.set(flow_key, new_entry);
 }
 
 void
+FlowTable::add_entry(const IPFlowID &flow_key, FlowEntry *entry)
+{
+    assert(_flow_table.set(flow_key, *entry));
+}
+
+void
 FlowTable::remove_flow(const IPFlowID &flow_key)
 {
-    if (_flow_table.find(flow_key) != _flow_table.end()) {
-        _flow_table.erase(flow_key);
+    // removes the flow with the given key; nothing if flow not in table
+    // mark the flow as being removed: make it inactive,
+    // and make it non-redirected, but DO NOT actually
+    // delete it from the table.  This avoids a potential
+    // TOCTOU bug when things are removed by one thread
+    // while they are still referenced by another
+    //
+    FlowEntry *entry = get_flow(flow_key);
+    if (entry == NULL) {
+       return;
     }
+
+    entry->set_state(FLOW_STATE_IGNORED);
+    entry->set_inactive();
+}
+
+void
+FlowTable::expunge_flow(const IPFlowID &flow_key)
+{
+    // really remove the flow the table
+    _flow_table.erase(flow_key);
 }
 
 void
 FlowTable::remove_inactive_flows()
 {
+    ssize_t old_size = _flow_table.size();
     Vector<IPFlowID> inactive_flows;
+
+    inactive_flows.reserve(old_size);
+
+    HashTable<IPFlowID, FlowEntry>::iterator end_of_flows = _flow_table.end();
 
     // identify inactive flows; inactive flows cannot be removed during this
     // iteration of the flow table because the iterator would become invalid
     for(HashTable<IPFlowID, FlowEntry>::iterator flow = _flow_table.begin();
-        flow != _flow_table.end();
+        flow != end_of_flows;
         ++flow) {
 
-        if (_flow_table[flow.key()].active() == false) {
+        FlowEntry &flow_entry = flow.value();
+
+        if (flow_entry.active() == false) {
             inactive_flows.push_back(flow.key());
         }
 
         // reset all flows as inactive for the next time interval
-        _flow_table[flow.key()].set_inactive();
+        flow_entry.set_inactive();
     }
 
     for (Vector<IPFlowID>::iterator flow = inactive_flows.begin();
          flow != inactive_flows.end();
          ++flow) {
 
-        remove_flow(*flow);
+        expunge_flow(*flow);
     }
+
+    ssize_t new_size = _flow_table.size();
+
+    click_chatter("FlowEntry::remove_inactive: %ld -> %ld (deleted %ld)",
+	    old_size, new_size, old_size - new_size);
 }
 
 String

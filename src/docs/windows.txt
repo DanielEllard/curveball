@@ -1,4 +1,4 @@
-WINDOWS BUILD GUIDE - version 2017.05.12
+WINDOWS BUILD GUIDE - version 2017.05.23 
 
 This document describes how to build an installer for the
 BBN Curveball client on Windows 7.

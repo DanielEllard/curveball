@@ -1,9 +1,13 @@
 #!/bin/bash
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,7 +85,8 @@ ROOT="${TARGETDIR}/src"
 #
 for dir in \
 	C android attic bitarray BitTornado ears firefox grazer \
-	openssl packetplay sentinels transmission trawler web-test ; do
+	openssl packetplay sentinels transmission trawler web-test \
+	deter demo ; do
     echo "Omitting $dir"
     rm -rf "${ROOT}/${dir}"
 done
@@ -91,9 +96,19 @@ for tarball in \
 	click/click-08072012.tar.gz \
 	click/click-01072013.tar.gz \
 	click/click-01102014.tar.gz \
+	click/click-01102014cb.tar.gz \
 	nss/nss-3.13.3/nss-3.13.3.tar.gz ; do
     echo "Omitting $tarball"
     rm -rf "${ROOT}/${tarball}"
+done
+
+# remove old fastclick tarballs that we don't use any more
+for tarball in \
+	fastclick-20160726.tgz  fastclick-20160901.tgz \
+	fastclick-20160810.tgz  fastclick-20161005.tgz \
+	fastclick-20160824.tgz  fastclick-20161019.tgz \
+	; do
+    rm -f "${ROOT}/dependencies/$tarball"
 done
 
 for extra in \
@@ -116,6 +131,11 @@ for extra in \
     rm -rf "${ROOT}/${extra}"
 done
 
+# Leave the amazon host certs out
+rm -rf "${ROOT}/CA/CERTS/"*compute-1.amazonaws.com.???
+# Omit the experiments, because they're broken
+rm -rf "${ROOT}/experiments"
+
 # The scripts directory is filled with many obsolete files.
 # Move everything into an "old-scripts" directory and then
 # move only the essential scripts back.
@@ -129,6 +149,9 @@ for script in \
     cbnoc-dhblacklist cb-noc-create-sentinel-files cb-noc-cleanup \
     cb-shutdown cb-startup-testbed curveball-key-config curveball-client \
     curveball-key-change decoyproxy.conf cb-dp cb-dr \
+    decoyproxy0.conf decoyproxy1.conf decoyproxy2.conf decoyproxy3.conf \
+    write-click-config \
+    cb-dr-combo \
     curveball-install-test-ca-cert cb-install-test-node-cert \
     mini-httpd \
     curveball-my-conns curveball-pin-route \
@@ -137,6 +160,9 @@ for script in \
     curveball-vpn-subnet curveball-cbsm \
     remora-client remora-server remora-shutdown \
     quilt-client quilt-server \
+    build-fastclick.sh setup-dell-ixgbe.sh \
+    bridge-util unset-ips \
+    cb-noc-cron cb-noc-rm-old \
     ;
 do
     mv "${ROOT}/old-scripts/${script}" "${ROOT}/scripts"

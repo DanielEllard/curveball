@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,14 +45,16 @@ class TLSFlowDetector : public SentinelDetector { public:
   private:
 
     // Handles incoming non-SYN TCP packets.
-    virtual void process_non_syn_packet(Packet *p);
+    virtual SentinelDetector::Packet_Action process_non_syn_packet(Packet *p);
 
     // Handles incoming TLS Hello messages.
-    void process_tls_client_hello(Packet *p, FlowEntry *entry);
+    SentinelDetector::Packet_Action
+        process_tls_client_hello(Packet *p, FlowEntry *entry);
     void process_tls_server_hello(Packet *p, FlowEntry *entry);
 
     // Handles segmented sentinel packets.
-    void process_sentinel_segment(Packet *p, FlowEntry *entry);
+    SentinelDetector::Packet_Action
+        process_sentinel_segment(Packet *p, FlowEntry *entry);
 };
 
 

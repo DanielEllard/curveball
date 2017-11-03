@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +37,7 @@ class DR2DPDecoder : public Element { public:
     ~DR2DPDecoder();
 
     const char *class_name() const	{ return "DR2DPDecoder"; }
-    const char *port_count() const	{ return "1/1"; }
+    const char *port_count() const	{ return "1/2"; }
     const char *processing() const	{ return PUSH; }
     const char *flow_code()  const	{ return COMPLETE_FLOW; }
     int        configure_phase() const	{ return CONFIGURE_PHASE_INFO; }
@@ -50,12 +54,22 @@ class DR2DPDecoder : public Element { public:
     void parse_remove_flow_msg(Packet *p);
     void parse_dh_blacklist_msg(Packet *);
 
+    void forward_packet(Packet *p);
+    bool retrieve_flow_entry(Packet *p, FlowEntry **entry);
+
     // methods to process DR2DP messages that span multiple packet buffers
     void	new_pkt_buffer(Packet *p, uint64_t length_needed = 0);
     Packet *	append_to_pkt_buffer(Packet *p);
     void	process_pkt_buffer();
     void	release_pkt_buffer();
     void	add_pkt(Packet *p);
+
+    #define NEXT_PKT_INDEX 0
+    #define PREV_PKT_INDEX 8
+    Packet *	next_pkt(Packet *p) const;
+    Packet *	prev_pkt(Packet *p) const;
+    void	set_next_pkt(Packet *p, Packet *next);
+    void	set_prev_pkt(Packet *p, Packet *prev);
 
     // state to handle DR2DP messages that span multiple packet buffers
     Packet *	_pktbuf;

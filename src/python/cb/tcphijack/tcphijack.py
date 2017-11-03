@@ -114,7 +114,7 @@ class TCPHijack(object):
 
         if TCPHijack.free_srcs is None:
             TCPHijack.free_srcs = free_src.FreeSrc(opts['tun_src_net'],
-                                          int(opts['tun_max_connections']))
+                                          int(opts['tun_max_conn']))
 
         if TCPHijack.hijack_manager is None:
             TCPHijack.hijack_manager = HijackManager(opts)

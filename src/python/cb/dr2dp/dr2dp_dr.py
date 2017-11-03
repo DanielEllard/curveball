@@ -22,7 +22,6 @@ The Decoy Router (DR) side of the DR2DP interface.
 """
 
 import logging
-import optparse
 import os
 import socket
 import struct
@@ -303,6 +302,9 @@ class SrcProtocol(Protocol):
         return True
 
     def forward_ip(self, msg):
+
+        msg.get_5tuple()
+
         if self.factory.dst_protocol:
             self.factory.dst_protocol.forward_message(msg)
         #self.dp_interface.forward_message(msg)
@@ -355,33 +357,27 @@ class SrcProtocol(Protocol):
         self.log.info('unimplemented DR2DP request (%s)' % (str(msg),))
         return True
 
-
-def parse_args():
-    parser = optparse.OptionParser()
-    parser.add_option("--addr", dest="addr", default="127.0.0.1",
-                      metavar="IPADDR",
-                      help="IP address to connect to Decoy Proxy. "
-                           "Defaults to 127.0.0.1.")
-    parser.add_option("--port", dest="port", type="int", default="4001",
-                      metavar="PORT",
-                      help="Port to connect to Decoy Proxy. "
-                           "Defaults to 4001.")
-    parser.add_option("--socket", dest="socket", default="/tmp/curveball",
-                      metavar="FILENAME",
-                      help="Unix domain socket filename. "
-                           "Defaults to '/tmp/curveball.'")
-
-    (opts, args) = parser.parse_args()
-    return opts
-
-
     
 class DR2DP_DR(object):
-    def __init__(self, dp_addr, dr_socket, dst_connected_callback=None):
+    def __init__(self, dp_addr, dr_socket, dst_connected_callback=None,
+            enable_watchers=False):
+        """
+        If enable_watchers is True, then start file watchers for the
+        Bloom filter and Bad Decoy Host filter files.
+
+        We only want one DR2DP_DR (or possibly none, in special cases)
+        to start a set of file watchers; we don't want multiple messages
+        to be sent to the DR to load new files when they become available.
+        Because we don't want this to happen until all the DP connections
+        are connected, enable_watchers should only be True for the last
+        DR2DP_DR created for this DR.
+        """
+
         self.log = logging.getLogger('dr2dp.dr')
         self.dr_socket = dr_socket
 
         self.dst_connected_callback = dst_connected_callback
+        self.enable_watchers = enable_watchers
         #self.dst_protocol = None
 
         # Connect to the dst (DR2DP_DP)
@@ -404,7 +400,7 @@ class DR2DP_DR(object):
         # Remove previous instance of socket if it already exists.
         if os.path.exists(self.dr_socket):
             os.remove(self.dr_socket)
-        print "starting socket"
+        print 'starting socket [%s]' % self.dr_socket
         endpoint = endpoints.UNIXServerEndpoint(reactor, self.dr_socket)
         endpoint.listen(self.srcFactory)  
         if self.dst_connected_callback:
@@ -417,7 +413,7 @@ class DR2DP_DR(object):
         self.srcFactory.dst_protocol = protocol        
 
     def dst_failed(self, protocol):
-        print 'Failed to connect to DP'
+        print 'Failed to connect to DP [%s]' % self.dr_socket
         try:
             reactor.stop()
         except error.ReactorNotRunning:
@@ -428,20 +424,92 @@ class DR2DP_DR(object):
     def src_connected(self, protocol):
         self.dstFactory.src_protocol = protocol
 
-        print "Connected to Unix Socket"
+        print 'Connected to Unix Socket [%s]' % self.dr_socket
 
-        helper = BloomWatcherHelper(protocol.upload_sentinel_filter)
-        self.dir_watcher = DirWatcher('/tmp/dr/bloomfilters/', helper, 5)
+        if self.enable_watchers:
+            helper = BloomWatcherHelper(protocol.upload_sentinel_filter)
+            self.dir_watcher = DirWatcher('/tmp/dr/bloomfilters/', helper, 5)
 
-        baddh_helper = BadDecoyWatcherHelper(protocol.upload_dh_blacklist)
-        self.baddh_watcher = DirWatcher('/tmp/dr/baddh/', baddh_helper, 5)
+            baddh_helper = BadDecoyWatcherHelper(protocol.upload_dh_blacklist)
+            self.baddh_watcher = DirWatcher('/tmp/dr/baddh/', baddh_helper, 5)
 
-def main():
-    opts = parse_args()
+
+class DR2DPS_DR(DR2DP_DR):
+    """
+    A generalized DR2DP that can handle multiple DPs at
+    different locations.
+    """
+
+    def __init__(self, dp_locs, dr_socket, dst_connected_callback=None):
+        self.log = logging.getLogger('dr2dp.dr')
+        self.dr_socket = dr_socket
+        self.conn_cnt = 0
+
+        self.dst_connected_callback = dst_connected_callback
+
+        self.conns = [ None ] * len(dp_locs)
+
+        for i in xrange(len(dp_locs)):
+            (dp_addr, dp_port) = dp_locs[i]
+
+            self.conns[i] = Factory()
+            self.conns[i].protocol = DstProtocol
+            self.conns[i].protocol.index = i
+            self.conns[i].dr2dp_dr = self
+            self.conns[i].src_protocol = None
+
+            endpoint = endpoints.TCP4ClientEndpoint(
+                    reactor, dp_addr, dp_port)
+            d = endpoint.connect(self.conns[i])
+            d.addCallback(self.dst_connected)
+            d.addErrback(self.dst_failed)
+
+        # Connect to the src (DR)
+        self.srcFactory = Factory()
+        self.srcFactory.protocol = SrcProtocol
+        self.srcFactory.dr2dp_dr = self
+        self.srcFactory.dst_protocol = None
+
+        # Remove previous instance of socket if it already exists.
+        if os.path.exists(self.dr_socket):
+            os.remove(self.dr_socket)
+
+        print "starting socket"
+        endpoint = endpoints.UNIXServerEndpoint(reactor, self.dr_socket)
+        endpoint.listen(self.srcFactory)  
+        if self.dst_connected_callback:
+            # Let anyone that wants to know that we've connected to the
+            # destination and that the unix socket is up and ready
+            self.dst_connected_callback()         
+
+    def dst_connected(self, protocol):
+        self.srcFactory.dst_protocol = protocol        
+        print 'connected to DP %s' % protocol.index
 
     
-    dr2dp_dr = DR2DP_DR((opts.addr, opts.port), opts.socket,
-                         None, False)
+def main():
+    import optparse
+
+    def parse_args():
+        parser = optparse.OptionParser()
+        parser.add_option("--addr", dest="addr", default="127.0.0.1",
+                          metavar="IPADDR",
+                          help="IP address to connect to Decoy Proxy. "
+                               "Defaults to 127.0.0.1.")
+        parser.add_option("--port", dest="port", type="int", default="4001",
+                          metavar="PORT",
+                          help="Port to connect to Decoy Proxy. "
+                               "Defaults to 4001.")
+        parser.add_option("--socket", dest="socket", default="/tmp/curveball",
+                          metavar="FILENAME",
+                          help="Unix domain socket filename. "
+                               "Defaults to '/tmp/curveball.'")
+
+        (opts, args) = parser.parse_args()
+        return opts
+
+    opts = parse_args()
+    dr2dp_dr = DR2DP_DR((opts.addr, opts.port), opts.socket, None, False)
 
     reactor.run()
 

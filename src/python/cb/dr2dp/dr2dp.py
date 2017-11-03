@@ -313,6 +313,15 @@ class DR2DPMessage1(object):
 
         return text
 
+    def get_5tuple(self):
+        if self.msg_type != DR2DPMessage1.OP_TYPE_FORWARD_IP:
+            return ''
+
+        fmt = '!B11sLL'
+        (hdr_len, _, src_addr, dst_addr) = struct.unpack(fmt, self.data[:20])
+
+        print '%x %s' % (src_addr, dst_addr)
+
 
 class DR2DPMessageSentinelFilter(DR2DPMessage1):
 

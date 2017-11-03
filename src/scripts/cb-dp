@@ -1,7 +1,25 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
+#
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.  See the License for the specific language governing
+# permissions and limitations under the License.
 #
 # Copyright 2014 - Raytheon BBN Technologies Corp.
 #
@@ -34,6 +52,8 @@ DIRNAME = os.path.normpath(
         os.path.abspath(os.path.dirname(sys.argv[0]) or '.'))
 
 sys.path.append(os.path.normpath(os.path.join(DIRNAME, '..', 'python')))
+
+import cb.util.cblogging_setup
 
 import cb.bp
 import cb.util.cb_constants as const
@@ -102,7 +122,7 @@ def parse_args(argv):
 
     parser.add_option("-c", "--configfile", dest="config_file",
             default=default_conf,
-            help="Decoy Proxy Configuration File",
+            help="cb-dp configuration file [default=%default]",
             metavar="FILENAME")
 
     parser.add_option("--outbound-dev", dest="outbound_dev",
@@ -187,6 +207,8 @@ def main():
 
     options = parse_args(sys.argv)
     config = read_config(options.config_file)
+    if not config:
+        sys.exit(1)
 
     # Override config with options
     # This means you should not use default values in options!
@@ -232,12 +254,23 @@ def main():
     FlowMonitor.sentinels = cb.noc.sentinel_watcher.SentinelManager(
             config['auth']['sentinel_dir'])
 
-    FlowMonitor.bittorrent_sentinels = cb.noc.dhexp_watcher.DHexpManager(
-            config['auth']['sentinel_dir'])
+    # FlowMonitor.bittorrent_sentinels = cb.noc.dhexp_watcher.DHexpManager(
+    #         config['auth']['sentinel_dir'])
+    print '%s: warning: no BitTorrent support!' % sys.argv[0]
+    FlowMonitor.bittorrent_sentinels = dict()
 
     time.sleep(2)
 
     ccp_listen_addr = ('localhost',int(config['ccp_dp']['ct_listener_port']))
+
+    http_uni_port = int(config['ccp_dp']['http_uni_port'])
+    tls_uni_port = int(config['ccp_dp']['tls_uni_port'])
+
+    # patch these "constants" to have their instance-specific values
+    #
+    const.HTTP_UNI_CT_DP_PORT = http_uni_port
+    const.TLS_UNI_CT_DP_PORT = tls_uni_port
+
     ct_uni_http_listen_addr = ('localhost', const.HTTP_UNI_CT_DP_PORT)
     ct_http_uni_dp_nohijack = CT_HTTP_UNI_DP_NoHijack(
         ct_uni_http_listen_addr, ccp_listen_addr )

@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,6 +41,7 @@ DIRNAME = os.path.normpath(
 sys.path.append(os.path.normpath(os.path.join(DIRNAME, '..', 'python')))
 
 import cb.noc.file
+import cb.sentman.keystate
 
 from cb.noc.make_sentinel_files import make_sent_file
 from cb.noc.make_sentinel_files import make_sentbf_file
@@ -58,34 +63,45 @@ if __name__ == '__main__':
         """
 
         parser = OptionParser("usage: %prog [options] keyfile")
-        
-        parser.add_option('-o', '--outdir', dest='outdir',
-                          default='./sdata',
-                          help='DIR to store sentinel and bloomfilter files' 
-                          + ' [./sdata]',
-                          metavar='DIR')
-        
-        parser.add_option('--sentinels', dest='nsentinels',
-                          type='int', 
-                          default = 128,
-                          help='Number of sentinels to generate per key [128]',
-                          metavar='N')
-        
-        parser.add_option('--hours', dest='nhours',
-                          type='int', 
-                          default=48,
-                          help='Number of hours to generate sentinels [48]',
-                          metavar='N')          
-        
-        parser.add_option('-c', '--combined-sbf', dest="combined_sbf",
-                          type='int', 
-                          default=0,
-                          help="Create a combined Bloom filter for N hours",
-                          metavar="N")
 
-        parser.add_option('-s', '--safe-mode', action='store_true', dest='safe',
-                          default=False,
-                          help='Keep / skip over existing files' )
+        parser.add_option(
+                '-o', '--outdir',
+                dest='outdir',
+                default='./sdata',
+                help=('DIR to store sentinel and bloomfilter files' +
+                    ' [./sdata]'),
+                metavar='DIR')
+
+        parser.add_option(
+                '--sentinels',
+                dest='nsentinels',
+                type='int',
+                default = cb.sentman.keystate.DEFAULT_SENTINELS_PER_EPOCH,
+                help='Number of sentinels to generate per key [%default]',
+                metavar='N')
+
+        parser.add_option(
+                '--hours',
+                dest='nhours',
+                type='int',
+                default=48,
+                help='Number of hours to generate sentinels [%default]',
+                metavar='N')
+
+        parser.add_option(
+                '-c', '--combined-sbf',
+                dest="combined_sbf",
+                type='int',
+                default=0,
+                help="Create a combined Bloom filter for N hours",
+                metavar="N")
+
+        parser.add_option(
+                '-s', '--safe-mode',
+                dest='safe',
+                action='store_true',
+                default=False,
+                help='Keep / skip over existing files')
 
         (options, args) = parser.parse_args()
 

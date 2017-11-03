@@ -33,10 +33,18 @@ def read_config(path=None):
     of the config is its own sub-dictionary
     """
     confparser = ConfigParser.RawConfigParser()
-    paths = ['decoyproxy.conf', os.path.expanduser('~/.curveball/decoyproxy.conf'),
-             '/etc/decoyproxy/decoyproxy.conf']
+
+    # If a path is given, use it (and no other).  If no path
+    # is given, try the decoyproxy.conf in the current directory
+    #
+    # NOTE: there used to be several defaults, which is why paths
+    # is as a list that may contain multiple paths, but now the
+    # assumption is that there is a path.
+    #
     if path:
-        paths.insert(0, path)
+        paths = list([path])
+    else:
+        paths = [ './decoyproxy.conf' ]
 
     found_file = None
     for fname in paths:
@@ -45,8 +53,8 @@ def read_config(path=None):
             break
 
     if not found_file:
-        import sys
-        sys.exit("Config file could not be found or was not properly formatted (I searched in paths: %s)" % paths)
+        print 'ERROR: config file %s could not be loaded' % str(paths)
+        return None
 
     config = {}
 

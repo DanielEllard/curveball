@@ -551,7 +551,7 @@ cb_stencil_aes_create_plaintext(const unsigned char *sr,
 
 	/* Give up if we've made too many unsuccessful attempts */
 	if (attempt == max_attempts) {
-	    printf("failed -- too many attempts\n");
+	    /* printf("failed -- too many attempts\n"); */
 	    return -1;
 	}
     }

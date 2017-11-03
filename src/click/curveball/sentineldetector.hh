@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +23,7 @@
 
 #ifndef CURVEBALL_SENTINELDETECTOR_HH
 #define CURVEBALL_SENTINELDETECTOR_HH
-#include <click/element.hh>
+#include <click/batchelement.hh>
 #include <click/ipflowid.hh>
 #include <click/timer.hh>
 #include "bloomfilter.hh"
@@ -49,13 +53,13 @@ class DHBlacklistEntry {
 };
 
 
-class SentinelDetector : public Element { public:
+class SentinelDetector : public BatchElement { public:
 
     SentinelDetector(int sentinel_length = 0);
     ~SentinelDetector();
 
     const char *class_name() const	{ return "SentinelDetector"; }
-    const char *port_count() const	{ return "2/3"; }
+    const char *port_count() const	{ return "2/4"; }
     const char *processing() const	{ return PUSH; }
     const char *flow_code()  const	{ return COMPLETE_FLOW; }
 
@@ -63,7 +67,10 @@ class SentinelDetector : public Element { public:
     int initialize(ErrorHandler *);
     void cleanup(CleanupStage);
 
-    void push(int port, Packet *p);
+#if HAVE_BATCH
+    void push_batch(int port, PacketBatch *batch);
+#endif
+    void push_packet(int port, Packet *p);
 
     // Installs the element's handlers.
     void add_handlers();
@@ -72,7 +79,7 @@ class SentinelDetector : public Element { public:
     void run_timer(Timer *timer);
 
     // Uploads a new sentinel bloom filter.
-    void update_sentinel_filter(const BloomFilter * filter);
+    void update_sentinel_filter(BloomFilter * filter);
 
     // uploads decoy host blacklist
     void update_dh_blacklist(const Vector<DHBlacklistEntry> & blacklist);
@@ -85,7 +92,32 @@ class SentinelDetector : public Element { public:
              { _flow_table.remove_flow(flow_key); }
 
     bool redirected_flow(const IPFlowID &flow_key)
-             { return _flow_table.member_flow(flow_key); }
+    {
+	if (! _flow_table.member_flow(flow_key)) {
+	    return false;
+	}
+
+	FlowEntry *entry = _flow_table.get_flow(flow_key);
+
+	if ((NULL == entry) || (entry->state() == FLOW_STATE_IGNORED)) {
+	    return false;
+	}
+	else {
+	    return true;
+	}
+    }
+
+    FlowEntry * retrieve_flow_entry(const IPFlowID &flow_key)
+    {
+	FlowEntry *entry = _flow_table.get_flow(flow_key);
+
+	if ((NULL == entry) || (entry->state() == FLOW_STATE_IGNORED)) {
+	    return NULL;
+	}
+	else {
+	    return entry;
+	}
+    }
 
     // Handle incoming udp flow notification.
     void incoming_udp_notification(const IPFlowID &flow_key,
@@ -97,21 +129,37 @@ class SentinelDetector : public Element { public:
 
   protected:
 
+    // possible actions to apply to incoming packets
+    enum Packet_Action {
+        FORWARD_NON_CURVEBALL,
+        FORWARD_CURVEBALL,
+        INITIAL_REDIRECT
+    };
+
+    // process an incoming packet
+    Packet_Action process_incoming_packet(int port, Packet *p);
+
     // Returns true if the packet is a TCP SYN; false otherwise.
     bool syn_packet(Packet *p);
 
     // Handles ACKs in TCP handshake.
-    void process_client_ack(Packet *p, FlowEntry *entry);
+    void process_client_ack(Packet *p,
+                            const IPFlowID &flow_key,
+                            FlowEntry *entry);
 
     // Handles incoming non-SYN TCP packets.
-    virtual void process_non_syn_packet(Packet *p);
+    virtual Packet_Action process_non_syn_packet(Packet *p);
 
     // Handles tcp server-side traffic.
-    void process_server_packet(Packet *p);
+    Packet_Action process_server_packet(Packet *p);
     void process_server_ack(Packet *p, FlowEntry *entry);
+
+    // redirect the sentinel packet of a curveball flow
+    void redirect_packet(Packet *p);
 
     // Generate UDP notification message.
     void generate_udp_notification(const Packet *p,
+                                   const FlowEntry &entry,
                                    const char *sentinel,
                                    unsigned int sentinel_len);
 
@@ -127,14 +175,25 @@ class SentinelDetector : public Element { public:
     // determine if the decoy host has been blacklisted
     bool is_blacklisted(const IPAddress & decoy_host);
 
+    // manage syn tables
+    void add_syn_flow(Packet *p);
+    void remove_syn_flow(const IPFlowID &flow_key);
+    FlowEntry * get_syn_flow(const IPFlowID &flow_key);
+    void age_out_syn_table();
+
     // Callback used to process read handlers.
     static String read_handler(Element *, void *);
 
     // Valid Curveball sentinels.
-    const BloomFilter *	_sentinels;
+    BloomFilter *	_sentinels;
 
     // Length (in bytes) of sentinel to extract from packet.
     int			_sentinel_length;
+
+    // number of bytes into flow to stop looking for sentinel
+    uint32_t		_max_sentinel_offset;
+
+    bool		_disable_segment_processing;
 
     // Known string sentinel that marks packets for Curveball redirection.
     String 		_sentinel;
@@ -142,8 +201,17 @@ class SentinelDetector : public Element { public:
     // deocy host blacklist
     Vector<DHBlacklistEntry> _dh_blacklist;
 
-    // Table that manages Curveball flows.
+    // tables that manage Curveball flows
     FlowTable		_flow_table;
+
+    FlowTable		_syn_table_one;
+    FlowTable		_syn_table_two;
+    FlowTable *		_cur_syn_table;
+    FlowTable * 	_prev_syn_table;
+
+    // timer to age out syn tables
+    uint32_t		_syn_table_timeout;
+    Timer		_syn_timer;
 
     // Time interval to identify inactive Curveball flows.
     uint32_t		_timeout_in_sec;
@@ -163,7 +231,7 @@ class SentinelDetector : public Element { public:
     // UDP destination port for flow notification packets; a port of 0
     // indicates that no UDP notifications are sent or received
     uint16_t		_udp_port;
-    IPAddress		_local_addr;
+    IPAddress		_udp_src_addr;
 
     // Flows that have already been seen by a previous DR on the path,
     // as determined by UDP flow notifications.

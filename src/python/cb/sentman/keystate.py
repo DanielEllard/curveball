@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,7 +40,7 @@ import cb.util.cblogging
 
 from cb.sentman.response import SentmanResponse
 
-DEFAULT_SENTINELS_PER_EPOCH = 128
+DEFAULT_SENTINELS_PER_EPOCH = 1024
 DEFAULT_MAX_SENTINELS_PER_EPOCH = 64 * DEFAULT_SENTINELS_PER_EPOCH
 
 # Epoch length is measured in seconds
@@ -408,7 +412,7 @@ class SentmanKeyCollection(object):
         with self.lock:
             if keystate.key in self.key2state:
                 # Don't add the same key again.
-                self.log.warn('attempted to add a key twice')
+                # self.log.warn('attempted to add a key twice')
                 return False
             else:
                 self.key2state[keystate.key] = keystate

@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -681,6 +685,11 @@ def main():
             default=default_alt_http_port, type=int, metavar='PORT',
             help='Use the given alternative HTTP port (default=%default)')
 
+    parser.add_option('--hostname', dest='hostname',
+            default=my_hostname, type=str, metavar='HOSTNAME',
+            help=('Name of the host certificate (default=%default).' +
+                '  Overrides --cert-path and --host-path.'))
+
     parser.add_option('--max-idle-time', dest='max_idle_time',
             type=float,
             default=default_max_idle_time, metavar='SECONDS',
@@ -740,6 +749,26 @@ def main():
         print 'ERROR: bad commandline\n'
         parser.print_help()
         sys.exit(1)
+
+    # if a hostname was specified, override the cert and key paths
+    #
+    if options.hostname != my_hostname:
+
+        # warn the user if the commandline appears to contradict
+        # itself: --hostname always wins
+        #
+        if options.cert_path != default_cert_path:
+            print 'WARNING: --cert-path overridden by --hostname'
+        if options.key_path != default_key_path:
+            print 'WARNING: --key-path overridden by --hostname'
+
+        options.cert_path = os.path.join(DIRNAME, '..', 'auth', 'nodes',
+                '%s.pem' % options.hostname)
+        options.key_path = os.path.join(DIRNAME, '..', 'auth', 'nodes',
+                '%s.key' % options.hostname)
+
+        options.cert_path = os.path.normpath(options.cert_path)
+        options.key_path = os.path.normpath(options.key_path)
 
     if (not options.use_http) and (not options.use_https):
         print 'ERROR: a protocol (HTTP, HTTPS, or alt-HTTP) must be selected\n'

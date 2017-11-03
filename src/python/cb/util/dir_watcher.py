@@ -130,7 +130,8 @@ class DirWatcher(object):
         self.poll_interval = poll_interval
 
         if not os.path.exists(watched_dname):
-            self.logger.error("DirWatcher: %s: no such file or directory")
+            self.logger.error(
+                    "DirWatcher: %s: no such file or directory" % watched_dname)
 
         self.watcher_thread = DirWatcherThread(watched_dname,
                                                helper,

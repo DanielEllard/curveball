@@ -1,7 +1,11 @@
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,21 +27,18 @@
 # ELEMENTS.
 #
 
-CLICK_VERSION	= 01102014cb
+CLICK_VERSION	= fastclick
 CLICK_DIR	= click-$(CLICK_VERSION)
 
-CLICK_OPTIONS	=
-CLICK_OPTIONS	+= --disable-linuxmodule
-CLICK_OPTIONS	+= --disable-ip6 --disable-ipsec --disable-radio
-CLICK_OPTIONS	+= --enable-dynamic-linking
-CLICK_OPTIONS	+= --prefix=/opt/curveball/click-inst
-
+# fastclick built seperate from curveball; configure where to find fastclick
 CBCLICK_OPTIONS	=
-CBCLICK_OPTIONS	+= --prefix=/opt/curveball/click-inst
+CBCLICK_OPTIONS	+= --with-click=/usr/local
+CBCLICK_OPTIONS	+= CC=gcc-4.7 CXX=g++-4.7
 
 SUDO		= /usr/bin/sudo
 MAKEFILE	= $(lastword $(MAKEFILE_LIST))
-SRCDIR_FILE	= /opt/curveball/click-inst/share/click/srcdir
+# fastclick built separate from curveball
+SRCDIR_FILE	= /usr/local/share/click/srcdir
 
 # If we're building in our home directory (or another development area)
 # then we don't need sudo to succeed.  If we're building and installing in
@@ -50,40 +51,32 @@ else
     BUILDSUDO =
 endif
 
-
 # test whether there's any version of click installed, and if so
 # whether it matches the version we want to build, and halts if
 # there's a version and it doesn't match what we need.  Otherwise,
 # builds/installs the base click, and then builds/installs the
 # BBN Curveball elements.
 #
+# fastclick is made/installed separately from curveball;
+# only build/install the BBN Curveball elements
 build:
-	$(MAKE) -f $(MAKEFILE) test_click_version
-	$(MAKE) -f $(MAKEFILE) base_click
-	cd curveball && $(BUILDSUDO) ./configure $(CBCLICK_OPTIONS)
-	cd curveball && $(BUILDSUDO) $(MAKE)
-	cd curveball && $(SUDO) $(MAKE) install
+	$(MAKE) -f $(MAKEFILE) cbbuild
 
 # Only builds/installs the BBN Curveball elements.
 #
-cbbuild: $(SRCDIR_FILE)
+# fastclick built separate from curveball; don't install if not there
+cbbuild:
 	$(MAKE) -f $(MAKEFILE) test_click_version
 	cd curveball && $(BUILDSUDO) ./configure $(CBCLICK_OPTIONS)
 	cd curveball && $(BUILDSUDO) $(MAKE)
 	cd curveball && $(SUDO) $(MAKE) install
-
-# if $SRCDIR_FILE does not exist, then click isn't installed (or isn't
-# where we think it should be), so we need to do an install.
-#
-$(SRCDIR_FILE):
-	$(MAKE) -f $(MAKEFILE) base_click
 
 # If there is a version installed, then we need to check whether it's
 # the version we are about to install.  If not, then gripe.
 #
 test_click_version:
 	@test ! -f $(SRCDIR_FILE) \
-	|| test $$(cat $(SRCDIR_FILE) | sed -e 's/.*\/click-//' ) \
+	|| test $$(cat $(SRCDIR_FILE) | sed -e 's/.*\///' ) \
 	    = $(CLICK_VERSION) \
 	|| (echo "" && \
 	    echo "ERROR: CLICK VERSION MISMATCH: wrong version installed:" && \
@@ -91,19 +84,7 @@ test_click_version:
 	    echo "" && \
 	    false)
 
-$(CLICK_DIR):
-	$(SUDO) apt-get install linux-headers-$(shell uname -r)
-	@echo "Untarring $@"
-	$(SUDO) /bin/tar zxf $@.tar.gz
-
-base_click:
-	$(MAKE) -f $(MAKEFILE) $(CLICK_DIR)
-	cd $(CLICK_DIR) && $(BUILDSUDO) ./configure $(CLICK_OPTIONS)
-	cd $(CLICK_DIR) && $(BUILDSUDO) $(MAKE)
-	cd $(CLICK_DIR) && $(SUDO) $(MAKE) install
-
-clean:	$(CLICK_DIR)
-	cd $(CLICK_DIR) && $(BUILDSUDO) $(MAKE) clean
+clean:
 	cd curveball && $(BUILDSUDO) $(MAKE) clean
 	cd curveball && $(BUILDSUDO) $(SUDO) ./configure $(CBCLICK_OPTIONS)
 
@@ -111,5 +92,5 @@ clean:	$(CLICK_DIR)
 # build area.
 #
 spotless:
-	$(SUDO) /bin/rm -rf $(CLICK_DIR)
+	$(MAKE) clean
 

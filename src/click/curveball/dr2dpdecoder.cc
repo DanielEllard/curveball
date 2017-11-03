@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +29,10 @@
 #include <click/error.hh>
 #include <click/integers.hh>
 #include <click/vector.hh>
+#include <clicknet/ip.h>
+#include <clicknet/tcp.h>
+#include <clicknet/icmp.h>
+#include <clicknet/ether.h>
 #if CLICK_LINUXMODULE
 #include <click/cxxprotect.h>
 CLICK_CXX_PROTECT
@@ -96,7 +104,9 @@ DR2DPDecoder::initialize(ErrorHandler *)
 
         if ((*e)->cast("SentinelDetector")) {
             SentinelDetector *d = (SentinelDetector *)(*e);
-	    d->update_sentinel_filter(&_sentinels);
+            if (_filter_file.length() > 0) {
+	        d->update_sentinel_filter(&_sentinels);
+            }
             _sentinel_detectors.push_back(d);
         }
     }
@@ -150,8 +160,13 @@ DR2DPDecoder::parse(Packet *p)
 
         } else if (pkt->length() > pkt_length) {
             // DR2DP message accounts for only part of the packet buffer.
-            pkt = p->clone();
-            pkt->take(pkt->length() - pkt_length);
+            pkt = WritablePacket::make(0, p->data(), pkt_length, 0);
+            if (pkt == NULL) {
+                click_chatter("DR2DPDecoder::parse: "
+                              "failed to allocate new packet");
+                p->kill();
+                return;
+            }
             p->pull(pkt_length);
 
         } else { // pkt->length() == pkt_length
@@ -174,13 +189,8 @@ DR2DPDecoder::parse(Packet *p)
                 break;
             }
 
-            // remove DR2DP protocol message header
-            pkt->pull(sizeof(dr2dp_msg));
-
-            // push packet out the element's outbound interface
-            output(0).push(pkt);
+            forward_packet(pkt);
             release_pkt = false;
-
             break;
 
         // New sentinel bloom filter to upload.
@@ -213,8 +223,6 @@ DR2DPDecoder::parse(Packet *p)
             pkt->kill();
         }
     }
-
-    return;
 }
 
 void
@@ -425,11 +433,17 @@ DR2DPDecoder::parse_dh_blacklist_msg(Packet *)
         size_t line_length = 0;
 
         while (getline(&line, &line_length, fp) != -1) {
-            char *addr = NULL;
-            char *mask = NULL;
+	    // assume the maximum possible match length
+	    char *addr = (char *) malloc(line_length + 1);
+	    char *mask = (char *) malloc(line_length + 1);
             int n;
 
-            n = sscanf(line, "%as %as", &addr, &mask);
+	    assert(addr != NULL);
+	    assert(mask != NULL);
+
+	    click_chatter("DR2DPDecoder::parse_dh_blacklist_msg: [%s]", line);
+
+            n = sscanf(line, "%s %s", addr, mask);
             if (n == 1) {
                 struct in_addr ipaddr;
 
@@ -443,8 +457,6 @@ DR2DPDecoder::parse_dh_blacklist_msg(Packet *)
                     click_chatter("DR2DPDecoder::parse_dh_blacklist_msg: "
                                   "invalid IP address: %s", addr); 
                 }
-
-                free(addr);
 
             } else if (n == 2) {
                 struct in_addr ipaddr;
@@ -470,14 +482,14 @@ DR2DPDecoder::parse_dh_blacklist_msg(Packet *)
                                   addr, mask);
                 }
 
-                free(addr);
-                free(mask);
 
             } else {
                 click_chatter("DR2DPDecoder::parse_dh_blacklist_msg: "
                               "failed to parse blacklist line: %s", line);
             }
 
+	    free(addr);
+	    free(mask);
             free(line);
             line = NULL;
             line_length = 0;
@@ -505,14 +517,171 @@ DR2DPDecoder::parse_dh_blacklist_msg(Packet *)
 }
 
 void
+DR2DPDecoder::forward_packet(Packet *p)
+{
+    // remove DR2DP protocol message header
+    p->pull(sizeof(dr2dp_msg));
+
+    // set network and transport headers
+    assert(p->length() > sizeof(click_ip));
+
+    const click_ip *ip_hdr = (const click_ip *)(p->data());
+    unsigned int ip_hlen = ip_hdr->ip_hl << 2;
+
+    assert(p->length() >= (ip_hlen + 4)); // header length plus ports
+
+    p->set_network_header(p->data());
+    p->set_transport_header(p->data() + ip_hlen);
+
+    // find flow entry for packet
+    FlowEntry *flow_entry = NULL;
+    bool reverse = retrieve_flow_entry(p, &flow_entry);
+
+    if (flow_entry == NULL) {
+        click_chatter("DR2DPDecoder::forward_packet: "
+                      "packet failed to match a redirected flow");
+        p->kill();
+        return;
+    }
+
+    // avoid fastclick warning; shift so packet is at start of data buffer
+    int ether_len = (flow_entry->vlan() ? sizeof(click_ether_vlan) :
+                                          sizeof(click_ether)); 
+    int shift_len = p->headroom() - ether_len;
+    assert(shift_len >= 0);
+
+    p = p->shift_data(-shift_len);
+    if (p == NULL) {
+        click_chatter("DR2DPDecoder::forward_packet: "
+                      "failed to shift packet data");
+        p->kill();
+        return;
+    }
+    
+    Packet *fwd_pkt = NULL;
+
+    // add ethernet header with vlan tag
+    if (flow_entry->vlan()) {
+        fwd_pkt = p->push(sizeof(click_ether_vlan));
+        click_ether_vlan *ether_hdr = (click_ether_vlan *)(fwd_pkt->data());
+        ether_hdr->ether_vlan_proto = htons(ETHERTYPE_8021Q);
+        ether_hdr->ether_vlan_tci = flow_entry->vlan_tag();
+        ether_hdr->ether_vlan_encap_proto = htons(ETHERTYPE_IP);
+
+    } else { // traditional ethernet
+        fwd_pkt = p->push(sizeof(click_ether));
+        click_ether *ether_hdr = (click_ether *)(fwd_pkt->data());
+        ether_hdr->ether_type = htons(ETHERTYPE_IP);
+    }
+
+    click_ether *ether_hdr = (click_ether *)(fwd_pkt->data());
+
+    if (!reverse) {
+        memcpy(&ether_hdr->ether_shost,
+               flow_entry->get_src_ethernet().data(),
+               sizeof(ether_hdr->ether_shost));
+        memcpy(&ether_hdr->ether_dhost,
+               flow_entry->get_dst_ethernet().data(),
+               sizeof(ether_hdr->ether_dhost));
+
+    } else { // reverse
+        memcpy(&ether_hdr->ether_shost,
+               flow_entry->get_dst_ethernet().data(),
+               sizeof(ether_hdr->ether_shost));
+        memcpy(&ether_hdr->ether_dhost,
+               flow_entry->get_src_ethernet().data(),
+               sizeof(ether_hdr->ether_dhost));
+    }
+
+    // push packet out the element's outbound interfaces
+    if (!reverse) {
+        output(0).push(fwd_pkt);
+
+    } else { // reverse
+        output(1).push(fwd_pkt);
+    }
+}
+
+bool
+DR2DPDecoder::retrieve_flow_entry(Packet *p, FlowEntry **entry)
+{
+    IPFlowID flow_key;
+    bool icmp_pkt = false;
+
+    if (p->ip_header()->ip_p != IP_PROTO_ICMP) {
+        flow_key = IPFlowID(p);
+
+    // icmp packet
+    } else {
+        // the decoy proxy should only have received (and forward) icmp
+        // packets with embedded ip packets that match redirected flows;
+        // nothing to do otherwise
+
+        if ((unsigned int)p->transport_length() < sizeof(click_icmp)) {
+            *entry = NULL;
+            return false;
+        }
+
+        const unsigned char *data = p->transport_header() + sizeof(click_icmp);
+        unsigned int len = p->transport_length() - sizeof(click_icmp);
+
+        if (len < sizeof(click_ip)) {
+            *entry = NULL;
+            return false;
+        }
+
+        const click_ip *ip_hdr = (const click_ip *)data;
+        unsigned int ip_hdr_len = ip_hdr->ip_hl * 4;
+
+        if (len < ip_hdr_len + sizeof(click_tcp)) {
+            *entry = NULL;
+            return false;
+        }
+
+        const click_tcp *tcp_hdr = (const click_tcp *)(data + ip_hdr_len);
+
+        flow_key = IPFlowID(IPAddress(ip_hdr->ip_src), tcp_hdr->th_sport,
+                            IPAddress(ip_hdr->ip_dst), tcp_hdr->th_dport);
+        icmp_pkt = true;
+    }
+
+    FlowEntry *flow_entry = NULL;
+    bool reverse = false;
+
+    for (Vector<SentinelDetector *>::iterator d = _sentinel_detectors.begin();
+         d != _sentinel_detectors.end();
+         ++d) {
+
+        flow_entry = (*d)->retrieve_flow_entry(flow_key);
+        if (flow_entry != NULL) {
+            if (icmp_pkt) {  // icmp packets go in reverse direction
+                reverse = true;
+            }
+            break;
+        }
+
+        flow_entry = (*d)->retrieve_flow_entry(flow_key.reverse());
+        if (flow_entry != NULL) {
+            if (!icmp_pkt) {  // icmp packets go in reverse direction
+                reverse = true;
+            }
+            break;
+        }
+    }
+
+    *entry = flow_entry;
+    return reverse;
+}
+
+void
 DR2DPDecoder::new_pkt_buffer(Packet *p, uint64_t length_needed)
 {
     assert(_pktbuf == NULL);
     assert(length_needed == 0 || length_needed > p->length());
 
     _pktbuf = p;
-    _pktbuf->set_prev((Packet *)NULL);
-    _pktbuf->set_next((Packet *)NULL);
+    set_prev_pkt(_pktbuf, (Packet *) NULL);
+    set_next_pkt(_pktbuf, (Packet *) NULL);
 
     if (length_needed == 0) {
         _header_needed = true;
@@ -545,7 +714,7 @@ DR2DPDecoder::append_to_pkt_buffer(Packet *p)
         do {
             memcpy(cur_pos, pkt->data(), pkt->length());
             cur_pos += pkt->length();
-            pkt = pkt->next();
+            pkt = next_pkt(pkt);
         } while (pkt != _pktbuf && pkt != NULL);
 
         assert((cur_pos + _bytes_remaining) ==
@@ -562,9 +731,18 @@ DR2DPDecoder::append_to_pkt_buffer(Packet *p)
         p = (Packet *)NULL;
 
     } else {
-        Packet * pkt = p->clone();
-        pkt->take(pkt->length() - _bytes_remaining);
+        int max_ether_len = sizeof(click_ether_vlan);
+        Packet * pkt = WritablePacket::make(
+            max_ether_len, p->data(), _bytes_remaining, 0);
+        
         p->pull(_bytes_remaining);
+        
+        if (pkt == NULL) {
+            click_chatter("DR2DPDecoder::append_to_pkt_buffer: "
+                          "failed to allocate new packet");
+            release_pkt_buffer();
+            return p;
+        }        
 
         add_pkt(pkt);
         assert(_bytes_remaining == 0);
@@ -582,25 +760,53 @@ DR2DPDecoder::add_pkt(Packet *p)
 {
     assert(_pktbuf);
 
-    if (_pktbuf->prev() == NULL) {
-        assert(_pktbuf->next() == NULL);
+    if (prev_pkt(_pktbuf) == NULL) {
+        assert(next_pkt(_pktbuf) == NULL);
 
-        _pktbuf->set_next(p);
-        _pktbuf->set_prev(p);
-        p->set_next(_pktbuf);
-        p->set_prev(_pktbuf);
+        set_next_pkt(_pktbuf, p);
+        set_prev_pkt(_pktbuf, p);
+        set_next_pkt(p, _pktbuf);
+        set_prev_pkt(p, _pktbuf);
 
     } else {
-        assert(_pktbuf->prev() != NULL);
-        assert(_pktbuf->next() != NULL);
+        assert(prev_pkt(_pktbuf) != NULL);
+        assert(next_pkt(_pktbuf) != NULL);
 
-        _pktbuf->prev()->set_next(p);
-        p->set_prev(_pktbuf->prev());
-        _pktbuf->set_prev(p);
-        p->set_next(_pktbuf);
+        set_next_pkt(prev_pkt(_pktbuf), p);
+        set_prev_pkt(p, prev_pkt(_pktbuf));
+        set_prev_pkt(_pktbuf, p);
+        set_next_pkt(p, _pktbuf);
     }
 
     _bytes_remaining -= p->length();
+}
+
+Packet *
+DR2DPDecoder::next_pkt(Packet *p) const
+{
+    assert(p);
+    return (Packet *) p->anno_ptr(NEXT_PKT_INDEX);
+}
+
+Packet *
+DR2DPDecoder::prev_pkt(Packet *p) const
+{
+    assert(p);
+    return (Packet *) p->anno_ptr(PREV_PKT_INDEX);
+}
+
+void
+DR2DPDecoder::set_next_pkt(Packet *p, Packet *next)
+{
+    assert(p);
+    p->set_anno_ptr(NEXT_PKT_INDEX, (const void *)next);
+}
+
+void
+DR2DPDecoder::set_prev_pkt(Packet *p, Packet *prev)
+{
+    assert(p);
+    p->set_anno_ptr(PREV_PKT_INDEX, (const void *)prev);
 }
 
 void
@@ -608,29 +814,46 @@ DR2DPDecoder::process_pkt_buffer()
 {
     assert(_header_needed == false);
     assert(_bytes_remaining == 0);
-    assert(_pktbuf->next() != NULL);
+    assert(next_pkt(_pktbuf) != NULL);
 
     uint64_t orig_len = _pktbuf->length();
     uint64_t curr_len = _pktbuf->length();
 
     uint64_t data_len_to_add = 0;
-    for (Packet *p = _pktbuf->next(); p != _pktbuf; p = p->next()) {
+    for (Packet *p = next_pkt(_pktbuf); p != _pktbuf; p = next_pkt(p)) {
         data_len_to_add += p->length();
     }
 
     // Remove first packet from buffer.
     Packet * first_pkt = _pktbuf;
-    _pktbuf->prev()->set_next(_pktbuf->next());
-    _pktbuf->next()->set_prev(_pktbuf->prev());
-    _pktbuf = _pktbuf->next();
-    first_pkt->set_next((Packet *)NULL);
-    first_pkt->set_prev((Packet *)NULL);
+    set_next_pkt(prev_pkt(_pktbuf), next_pkt(_pktbuf));
+    set_prev_pkt(next_pkt(_pktbuf), prev_pkt(_pktbuf));
+    _pktbuf = next_pkt(_pktbuf);
+    set_next_pkt(first_pkt, (Packet *) NULL);
+    set_prev_pkt(first_pkt, (Packet *) NULL);
 
     // Create new packet to contain the total assembled DR2DP message.
-    WritablePacket * pkt = first_pkt->put(data_len_to_add);
+    WritablePacket *pkt = (WritablePacket *)first_pkt;
+
+    if (first_pkt->tailroom() < (data_len_to_add + 128)) {
+        pkt = WritablePacket::make(
+                  0, first_pkt->data(), first_pkt->length(), data_len_to_add);
+
+        // new packet copy made; no longer need the original
+        first_pkt->kill();
+
+        if (pkt == NULL) {
+            click_chatter("DR2DPDecoder::process_pkt_buffer: "
+                          "failed to allocate new packet");
+            release_pkt_buffer();
+            return;
+        }
+    }
+
+    pkt = pkt->put(data_len_to_add);
     if (pkt == NULL) {
         click_chatter("DR2DPDecoder::process_pkt_buffer: "
-                      "failed to allocate packet");
+                      "failed to increase packet size");
         release_pkt_buffer();
         return;
     }
@@ -642,9 +865,9 @@ DR2DPDecoder::process_pkt_buffer()
         memcpy(end_data, p->data(), p->length());
         end_data += p->length();
         curr_len += p->length();
-        p = p->next();
+        p = next_pkt(p);
     } while (p != _pktbuf);
-    
+
     if (curr_len != orig_len + data_len_to_add) {
         click_chatter("DR2DPDecoder::process_pkt_buffer: "
                       "packet lengths fail to match");
@@ -667,8 +890,8 @@ DR2DPDecoder::release_pkt_buffer()
         return;
     }
 
-    if (_pktbuf->prev() != NULL) {
-        _pktbuf->prev()->set_next((Packet *)NULL);
+    if (prev_pkt(_pktbuf) != NULL) {
+        set_next_pkt(prev_pkt(_pktbuf), (Packet *) NULL);
     }
 
     Packet * p = _pktbuf;
@@ -676,7 +899,7 @@ DR2DPDecoder::release_pkt_buffer()
 
     while (p != NULL) {
         tmp = p;
-        p = p->next();
+        p = next_pkt(p);
         tmp->kill();
     }
 

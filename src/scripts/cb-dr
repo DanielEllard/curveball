@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +27,7 @@ Runs the DR software (both click and the dr2dp code)
 """
 
 import atexit
+import logging
 import optparse
 import os
 import os.path
@@ -42,6 +47,8 @@ DIRNAME = os.path.normpath(
 
 sys.path.append(os.path.normpath(os.path.join(DIRNAME, '..', 'python')))
 
+import cb.util.cblogging_setup
+
 import cb.util.unbuffered
 cb.util.unbuffered.unbuffer()
 
@@ -51,70 +58,79 @@ from twisted.internet import epollreactor
 epollreactor.install()
 from twisted.internet import reactor
 
-from cb.dr2dp.dr2dp_dr import DR2DP_DR
+from cb.dr2dp.dr2dp_dr import DR2DP_DR, DR2DPS_DR
 import cb.util.interface as interface
 
-CLICK_EXE = os.path.join('/', 'opt', 'curveball', 'click-inst', 'bin', 'click')
+from cb.util.proc_watcher import ProcWatcher, ProcWatcherHelper
+
+CLICK_EXE = os.path.join('/', 'usr', 'local', 'bin', 'click')
 
 def parse_args():
     parser = optparse.OptionParser()
 
-    click_exe = os.path.normpath(
-            os.path.join(DIRNAME, '..',
-                    'click', 'curveball', 'decoy-router.click'))
+    click_script = os.path.normpath(
+            os.path.join(DIRNAME, 'decoy-router.click'))
 
     parser.add_option("-d", "--decoyproxy",
                       default="dp:4001",
-                      help="Proxy server host:port. "
-                      "Defaults to dp:4001",
+                      help="Proxy server host:port [default=%default].",
                       metavar="IPADDR:PORT")
 
     parser.add_option("-i", "--iface",
-                      default="",
-                      help="Interface to listen on for client->decoy packets")
+                      default="eth0",
+                      help="Interface to listen on for client->decoy packets"
+                           " [default=%default].")
 
     parser.add_option("-r", "--riface",
-                      default="",
-                      help="Interface to listen on for decoy->client packets")
+                      default="eth1",
+                      help="Interface to listen on for decoy->client packets"
+                           " [default=%default].")
 
-    parser.add_option("--decoyname",
-                      default="decoy",
-                      help="Name of a host after the DR on the path " +
-			    " from the client to the decoy (default=decoy)")
-
-    parser.add_option("--clientname",
-                      default="client",
-                      help="Name of a host prior to the DR on the path " +
-			    " from the client to the decoy (default=client)")
-
-    parser.add_option("-s", "--script",
-                      metavar="FILENAME",
-                      default=click_exe,
-                      help="Click script to run. "
-                      "default = [%default]")
-
-    parser.add_option("-k", "--kernel",
-                      action="store_true",
-                      help="Use the kernel router")
+    parser.add_option("-u", "--upstream_neighbor",
+                      default="10.0.1.1",
+                      metavar="IPADDR",
+                      help="IP address of upstream neighbor to be used as"
+                           " source of UDP notifications"
+                           " [default=%default].")
 
     parser.add_option("--socket",  default="/tmp/curveball",
                       metavar="FILENAME",
-                      help="Unix domain socket between DR2DP and Click. "
-                           "Defaults to '/tmp/curveball.'")
+                      help="Unix domain socket between DR2DP and Click "
+                           "[default=%default].")
 
-    parser.add_option("--permit-deadbeef", default=False,
+    parser.add_option("--stat_interval",
+                      default=1,
+                      metavar="SEC",
+                      help="Interval in seconds to print packet statistics "
+                           "[default=%default].")
+
+    parser.add_option("--disable_segments",
                       action="store_true",
-                      help="Permit the 'DEADBEEF' sentinel")
+                      default=False,
+                      help="Disable segmented flow processing.")
 
-    parser.add_option("--bittorrent-port", dest='bittorrent_port',
-                      default=6881, type=int, metavar="PORT",
-                      help="BitTorrent port [default=%default]")
+    parser.add_option("--max_idle",
+                      default=10,
+                      metavar="COUNT",
+                      help="Number of intervals of zero incoming packets "
+                           "allowed before shutting down the DR.  If zero, "
+                           "no check is made"
+                           "[default=%default].")
+
+    parser.add_option("-s", "--click_script",
+                      metavar="FILENAME",
+                      default=click_script,
+                      help="Click decoy router configuration script; "
+                           "default = [%default]")
 
     (opts, args) = parser.parse_args()
 
-    if opts.bittorrent_port < 1 or opts.bittorrent_port > 65535:
-        print "ERROR: invalid BitTorrent port configured: %d" % \
-              opts.bittorrent_port
+    if opts.stat_interval < 0:
+        print "ERROR: stat_interval must be >= 0"
+        sys.exit(1)
+
+    if opts.max_idle < 0:
+        print "ERROR: max_idle must be >= 0"
         sys.exit(1)
 
     return opts
@@ -127,6 +143,7 @@ def _get_addr_from_route(route):
     assert(m)
     return m.group(1)
 
+# not currently used with DR in bridge mode
 def get_dr_client_addr( client_name ):
     """ The DR needs to know the IP address of the interface that it uses
     to reach the client.  This is the interface that it monitors. """
@@ -142,7 +159,7 @@ def get_dr_client_addr( client_name ):
     addr = _get_addr_from_route(out)
     return addr
 
-
+# not currently used with DR in bridge mode
 def get_dr_decoy_addr( decoy_name ):
     """ The DR needs to know the IP address of the interface that it uses
         to reach the decoy. This is an interface that it monitors. """
@@ -159,69 +176,78 @@ def get_dr_decoy_addr( decoy_name ):
     addr = _get_addr_from_route(out)
     return addr
 
+class ClickWatcherHelper(ProcWatcherHelper):
 
-def run_click(opts):
+    def __init__(self):
+        super(ClickWatcherHelper, self).__init__()
+
+        self.logger = logging.getLogger('cb.cb-dr')
+
+    def exited(self, proc, exit_code):
+
+        print('CLICK exited with code %d' % exit_code)
+        self.logger.warn('click exited (with code %d)' % exit_code)
+        reactor.stop()
+        sys.exit(1)
+
+
+def run_click(opts, num_proxies):
     # Start the click router
-    click_ip = get_dr_client_addr( opts.clientname )
-    click_r_ip = get_dr_decoy_addr( opts.decoyname )
 
-    iface = interface.ip_to_interface(click_ip)
-    r_iface = interface.ip_to_interface(click_r_ip)
-
-    if opts.iface:
-        iface = opts.iface
-
-    if opts.riface:
-        r_iface = opts.riface
+    iface = "netmap:" + opts.iface
+    riface = "netmap:" + opts.riface
 
     print "Using %s to capture client->decoy packets" % iface
-    print "Using %s to capture decoy->client packets" % r_iface
+    print "Using %s to capture decoy->client packets" % riface
 
-    if iface == r_iface:
-	print "ERROR: iface and r_iface must be different"
+    if iface == riface:
+	print "ERROR: iface and riface must be different"
 	sys.exit(1)
 
     try:
-        print 'opts.script = %s' % opts.script
-        if opts.kernel:
-            cmd = 'click-install %s -V DEV=%s REVERSE_DEV=%s LOCAL_IP=%s' % (opts.script, iface, r_iface, click_ip)
+        try:
+            write_config_script = os.path.normpath(
+                os.path.join(DIRNAME, 'write-click-config'))
+            cmd = "%s %s %s" % (
+                    write_config_script, str(num_proxies), opts.click_script)
+            subprocess.check_call(cmd, shell=True)
+        except BaseException, exc:
+            print "ERROR: failed to create decoy router click configuration"
+            print "ERROR: %s" % str(exc)
+            sys.exit(1)
 
-            cmd += ' BITTORRENT_PORT=%d' % opts.bittorrent_port
+        # turn generic receive offload to off on client-side interface
+        try:
+            cmd = "ethtool -K %s gro off" % (opts.iface)
+            subprocess.check_call(cmd, shell=True)
+        except:
+            print "failed to turn gro off on interface %s" % (opts.iface)
+            sys.exit(1)
 
-            if not opts.permit_deadbeef:
-                cmd += ' TLS_SENTINEL="\'\'" HTTP_SENTINEL="\'\'"'
-            os.system(cmd)
-        else:
+        # turn generic receive offload to off on decoy-side interface
+        try:
+            cmd = "ethtool -K %s gro off" % (opts.riface)
+            subprocess.check_call(cmd, shell=True)
+        except:
+            print "failed to turn gro off on interface %s" % (opts.riface)
+            sys.exit(1)
 
-            # turn generic receive offload to off on client-side interface
-            try:
-                cmd = "ethtool -K %s gro off" % (iface)
-                subprocess.check_call(cmd, shell=True)
-            except:
-                print "failed to turn gro off on interface %s" % (iface)
+        cmd = "%s -j 2 %s FORWARD_DEV=%s REVERSE_DEV=%s UDP_SRC_ADDR=%s PATH=\'%s\' STAT_INTERVAL=%s MAX_ZERO_INTERVAL=%s" % (
+                CLICK_EXE, opts.click_script, iface, riface,
+                opts.upstream_neighbor, opts.socket, opts.stat_interval,
+                opts.max_idle)
 
-            # turn generic receive offload to off on decoy-side interface
-            try:
-                cmd = "ethtool -K %s gro off" % (r_iface)
-                subprocess.check_call(cmd, shell=True)
-            except:
-                print "failed to turn gro off on interface %s" % (r_iface)
+        if opts.disable_segments:
+            cmd += " DISABLE_SEGMENTS=true"
 
-            cmd = "%s %s LOCAL_IP=%s DEV=%s REVERSE_IP=%s REVERSE_DEV=%s" % (
-                    CLICK_EXE, opts.script, click_ip, iface,
-                    click_r_ip, r_iface)
+        click_proc = subprocess.Popen(cmd, shell=True)
+        ProcWatcher(click_proc, ClickWatcherHelper())
+        time.sleep(3)
 
-            cmd += ' BITTORRENT_PORT=%s' % opts.bittorrent_port
-
-            if not opts.permit_deadbeef:
-                cmd += ' TLS_SENTINEL="\'\'" HTTP_SENTINEL="\'\'"'
-
-            click = subprocess.Popen(cmd, shell=True)
-            time.sleep(3)
     except OSError, e:
+        self.logger.error('failed to start click')
         print "Failed to execute click"
         sys.exit(1)
-
 
 def handle_signals(signum, frame):
     """
@@ -236,7 +262,10 @@ def handle_signals(signum, frame):
         reactor.stop()
     except:
         cleanup()
-        sys.exit(1) 
+        try:
+            sys.exit(1) 
+        except:
+            pass
 
 def cleanup():
     """
@@ -256,47 +285,76 @@ def main():
     signal.signal(signal.SIGINT, handle_signals)
     signal.signal(signal.SIGTERM, handle_signals)
 
-    if opts.kernel:
-        os.system('sudo rm /dev/click_user0')
-        os.system('sudo rm /dev/click_user1')
+    from cb.dr2dp.dr2dp_dr import DR2DP_DR
 
-    if opts.kernel:
-        run_click(opts)
-
-    if opts.kernel:
-        from cb.dr2dp.dr2dp_dr_kernel import DR2DP_DR
-        opts.socket='/dev/click_user0'
-        opts.socket_wr='/dev/click_user1'
-
-        os.system('sudo mknod /dev/click_user0 c 241 0')
-        os.system('sudo mknod /dev/click_user1 c 241 1')
-    else:
-        from cb.dr2dp.dr2dp_dr import DR2DP_DR
-
-    dp_addr, dp_port = opts.decoyproxy.split(':')
     print 'socket = %s' % opts.socket
 
-    try:
-        socket.gethostbyname(dp_addr)
-        print "Using %s as decoyproxy host name" % (dp_addr)
-    except:
-        print "No IP address for decoy proxy named %s, exiting" % dp_addr
-        sys.exit(1)
+    dp_locs = list()
 
-    try:
-        if opts.kernel:
-            dr2dp_dr = DR2DP_DR((dp_addr, int(dp_port)), opts.socket,
-                    opts.socket_wr)
-        else:
-            dr2dp_dr = DR2DP_DR((dp_addr, int(dp_port)), opts.socket,
-                    lambda: run_click(opts))
-    except BaseException, exc:
-        msg = str(exc)
-        if msg:
-            print 'ERROR starting DR: %s' % msg
-        else:
-            print 'ERROR starting DR'
-        sys.exit(1)
+    for dp_instance in opts.decoyproxy.split(','):
+        (dp_addr, dp_port) = dp_instance.split(':')
+
+        try:
+            socket.gethostbyname(dp_addr)
+            print "Using %s as decoyproxy host name" % (dp_addr)
+        except:
+            print "No IP address for decoy proxy named %s, exiting" % dp_addr
+            sys.exit(1)
+
+        dp_locs.append((dp_addr, int(dp_port)))
+
+        num_proxies = len(dp_locs)
+
+    # if there's only one entry in dp_locs, do things
+    # the old-fashioned way.  Otherwise, use the new
+    # multi-DP method (see below for more info)
+    #
+    if len(dp_locs) == 1:
+        try:
+            dp_loc = dp_locs[0]
+
+            sock_name = '%s%d' % (opts.socket, 0)
+            dr2dp_dr = DR2DP_DR(
+                    dp_loc, sock_name, lambda: run_click(opts, num_proxies),
+                    enable_watchers=True)
+        except BaseException, exc:
+            msg = str(exc)
+            if msg:
+                print 'ERROR starting DR: %s' % msg
+            else:
+                print 'ERROR starting DR'
+            sys.exit(1)
+    else:
+        # If we have multiple DPs, then we create a DR2DP_DR
+        # instance for each one, and the name of the socket is
+        # changed for each.
+        #
+        # The last DR2DP_DR we create is special: it is the one
+        # that actually starts click when it achieves a connection.
+        # We'd like to wait a moment before starting this one,
+        # in order to give the system some time to start up,
+        # but twisted doesn't make it obvious how to do that.
+        # (TODO: this is lame).
+
+        sock_num = 0
+        for dp_loc in dp_locs[:-1]:
+            sock_name = '%s%d' % (opts.socket, sock_num)
+            print 'creating DR2DP for %s at %s' % (str(dp_loc), sock_name)
+            dr2dp_dr = DR2DP_DR(dp_loc, sock_name, None)
+
+            sock_num += 1
+
+        # try to make sure all the DP connections except the last
+        # one are ready prior to starting the DR
+        #
+        time.sleep(1)
+
+        dp_loc = dp_locs[-1]
+        sock_name = '%s%d' % (opts.socket, sock_num)
+        print 'creating DR2DP for %s at %s' % (str(dp_loc), sock_name)
+        dr2dp_dr = DR2DP_DR(
+                dp_loc, sock_name, lambda: run_click(opts, num_proxies),
+                enable_watchers=True)
 
     print "DR Running" # experiment scripts expect to see this
 

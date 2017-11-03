@@ -1,8 +1,12 @@
 /*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
  *
- * Copyright 2014 - Raytheon BBN Technologies Corp.
+ * Copyright 2014-2016 - Raytheon BBN Technologies Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +23,13 @@
 
 #ifndef CURVEBALL_UDPRECEIVER_HH
 #define CURVEBALL_UDPRECEIVER_HH
-#include <click/element.hh>
+#include <click/batchelement.hh>
 #include "sentineldetector.hh"
 CLICK_DECLS
 
 // Element that handles incoming Curveball UDP flow notification packets.
 
-class UDPReceiver : public Element {
+class UDPReceiver : public BatchElement {
   public:
 
     UDPReceiver();
@@ -39,11 +43,15 @@ class UDPReceiver : public Element {
     int configure(Vector<String> &, ErrorHandler *);
     int initialize(ErrorHandler *);
 
-    void push(int port, Packet *p);
+#if HAVE_BATCH
+    void push_batch(int port, PacketBatch *batch);
+#endif
+    void push_packet(int port, Packet *p);
 
   private:
 
-    void process_notification_pkt(Packet *p);
+    bool forward_incoming_pkt(Packet *p);
+    bool process_notification_pkt(Packet *p);
 
     // destination port of inspected traffic
     uint16_t 	_port;

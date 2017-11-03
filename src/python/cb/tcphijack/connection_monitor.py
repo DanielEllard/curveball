@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 #
 # This material is based upon work supported by the Defense Advanced
-# Research Projects Agency under Contract No. N66001-11-C-4017.
+# Research Projects Agency under Contract No. N66001-11-C-4017 and in
+# part by a grant from the United States Department of State.
+# The opinions, findings, and conclusions stated herein are those
+# of the authors and do not necessarily reflect those of the United
+# States Department of State.
 #
-# Copyright 2014 - Raytheon BBN Technologies Corp.
+# Copyright 2014-2016 - Raytheon BBN Technologies Corp.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -549,15 +553,17 @@ class FlowMonitor(object):
             flags = pkt.get_flags()
             if flags & dpkt.tcp.TH_RST:
                 print 'detected client->decoy RST on tunnel'
-                self.cm.remove_flow(self.flow_tuple)
                 self.dr2dp.send_to_dr(str(pkt))
+                self.cm.remove_flow(self.flow_tuple)
 
             elif flags & dpkt.tcp.TH_FIN:
                 print 'detected client->decoy FIN on tunnel'
-                self.cm.remove_flow(self.flow_tuple)
                 self.dr2dp.send_to_dr(str(pkt))
+                self.cm.remove_flow(self.flow_tuple)
 
-            self.handshake(pkt)
+            else:
+                self.handshake(pkt)
+
             return
 
     def traffic_to_client(self, pkt):
@@ -609,13 +615,13 @@ class FlowMonitor(object):
             flags = pkt.get_flags()
             if flags & dpkt.tcp.TH_RST:
                 print 'detected client->decoy RST on tunnel'
-                self.cm.remove_flow(self.flow_tuple)
                 self.dr2dp.send_to_dr(str(pkt))
+                self.cm.remove_flow(self.flow_tuple)
 
             elif flags & dpkt.tcp.TH_FIN:
                 print 'detected client->decoy FIN on tunnel'
-                self.cm.remove_flow(self.flow_tuple)
                 self.dr2dp.send_to_dr(str(pkt))
+                self.cm.remove_flow(self.flow_tuple)
 
             self.handshake(pkt)
             return
@@ -1331,8 +1337,8 @@ class HTTPBiFlowMonitor(FlowMonitor):
         except ValueError:
             print "Neither content length nor chunk encoding: don't hijack"
             DEBUG and log_debug("Neither content length nor chunk encoding: don't hijack")
-            self.cm.remove_flow(self.flow_tuple)
             self.dr2dp.send_to_dr(str(pkt))
+            self.cm.remove_flow(self.flow_tuple)
 
     def get_premaster(self, msg, pkt):
         """

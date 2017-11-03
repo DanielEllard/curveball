@@ -72,8 +72,17 @@ remove_bloat() {
     rm -f "${INSTALLDIR}"/experiments/*.log.?
 
     rm -rf "${INSTALLDIR}"/experiments/out
+
+    # Just omit all the experiments for now, since
+    # many are broken right due to changes with the
+    # bridge, etc.
+    # 2017/05/22 -DJE
+    #
+    rm -rf "${INSTALLDIR}"/experiments/
+
     rm -rf "${INSTALLDIR}"/out
     rm -rf "${INSTALLDIR}"/scripts/out
+    rm -rf "${INSTALLDIR}"/scripts/sdata
 
     return 0
 }
@@ -110,10 +119,12 @@ add_docs() {
 	cp "${doc}" "${docdir}"
     done
 
+    cp "${THISDIR}/../docs/README.txt" "${docdir}"
+
     return 0
 }
 
-add_click() {
+old_add_click() {
 
     # add click and our click modules
     rm -rf "${INSTALLDIR}"/click
@@ -134,7 +145,7 @@ add_click() {
 # Copy the installed version of the "Curveball" click from
 # /opt/curveball/click-inst to the staging area.
 #
-add_click_inst() {
+old_add_click_inst() {
 
     if [ ! -d /opt/curveball/click-inst ]; then
 	fatal "Cannot find installed click in /opt/curveball"
@@ -157,6 +168,56 @@ add_click_inst() {
 	rm -f "${INSTALLDIR}/click-inst/lib/$f"
     done
 
+}
+
+add_click() {
+
+    # add click and our click modules
+    rm -rf "${INSTALLDIR}"/click
+    mkdir -p "${INSTALLDIR}"/click
+    cp "${THISDIR}"/../click/Makefile.deb "${INSTALLDIR}"/click/Makefile
+    cp -pR "${THISDIR}"/../click/curveball "${INSTALLDIR}"/click/
+    find "${INSTALLDIR}/click"
+
+    # Clean out the derived files from click/curveball
+    # For some reason, distclean is not adequate.
+    #
+    (cd "${INSTALLDIR}"/click/curveball ; make distclean)
+    rm -f "${INSTALLDIR}"/click/curveball/Module.symvers
+    rm -f "${INSTALLDIR}"/click/curveball/modules.order
+    rm -rf "${INSTALLDIR}"/click/curveball/.tmp_versions
+}
+
+# With fastclick, we DON'T copy the installed version of the
+# "Curveball" click to the staging area.  We need fastclick
+# to already be installed on the install host.
+#
+add_click_inst() {
+    true
+}
+
+# Add the sources for dependencies we need to build, in
+# the cases where we know what they are.
+#
+add_dep_src() {
+    mkdir -p "${INSTALLDIR}"/dependencies
+
+    # If the tarball names change, then this needs to be
+    # updated as well!
+
+    for f in README.txt netmap-20160726.tgz fastclick-20161117.tgz; do
+
+	src="${THISDIR}"/../dependencies/"${f}"
+	dst="${INSTALLDIR}"/dependencies/"${f}"
+
+	if [ ! -f "${src}" ]; then
+	    echo "Error: dep src $src is missing"
+	    exit 1
+	fi
+
+	cp "${src}" "${dst}"
+	chmod 444 "${dst}"
+    done
 }
 
 # Clean up after earlier builds
@@ -213,7 +274,8 @@ Depends: \
 	libnetfilter-queue1, nmap, python-pyside, \
 	zlib1g-dev, python-bitarray, python-pexpect, \
 	curl, debsums, python-tlslite, ethtool, libpcap0.8-dev, \
-	python-socksipy, python-pcapy, python-netifaces, python-dnspython
+	python-socksipy, python-pcapy, python-netifaces, python-dnspython, \
+	vlan
 EOF
 
 cat >> "${DEBDIR}"/postinst << EOF
@@ -252,9 +314,6 @@ fi
 config_tsocks
 config_proxychains
 
-# echo "DO NOT FORGET TO BUILD CLICK FOR THE DR"
-# cd $TARGETDIR/click ; sudo make install || exit 1
-
 case \$(hostname -f) in
     *.nct.bbn.com)
 	echo ""
@@ -267,6 +326,16 @@ case \$(hostname -f) in
 	chmod 400 /opt/curveball/auth/keys/master.km
 	;;
 esac
+
+echo "= = = = = ="
+echo "RUN \"sudo apt-get install -yf\" to complete the installation"
+echo ""
+echo "= = = = = ="
+echo "DO NOT FORGET TO BUILD CLICK FOR THE DR"
+echo "= = = = = ="
+echo "If installing on the DR, then run the following commands:"
+echo "    $TARGETDIR/scripts/build-fastclick.sh # if fastclick is not installed"
+echo "    cd $TARGETDIR/click; sudo make"
 
 exit 0
 EOF
@@ -314,8 +383,9 @@ EOF
     chmod 755 "${DEBDIR}"/preinst
 }
 
-# add_click
-add_click_inst
+add_dep_src
+add_click
+# add_click_inst
 remove_bloat
 add_build_info
 add_docs

@@ -30,11 +30,9 @@
 #
 # usage: ./make-node-cert node-name [node-name ...]
 
-RSA_KEYSIZE=2048	# adjust as necessary
+RSA_KEYSIZE=4096	# adjust as necessary
 LIFETIME_DAYS=1461	# four years
 CA_CERT_DIR=CA
-
-SERIAL_NUMBER=0001	# TODO: I suspect this is wrong
 
 CA_NAME=CURVEBALL_CA
 CA_KEY=${CA_CERT_DIR}/${CA_NAME}.key
@@ -117,6 +115,7 @@ subjectAltName       = DNS:${name}
 	    -CA "${CA_CERT}" -CAkey ${CA_KEY} \
 	    -days "${LIFETIME_DAYS}" \
 	    -extfile "${extfile}" \
+	    -sha256 \
 	    -in "${reqfile}" -out "${certfile}"
     rc=$?
     rm -f "${reqfile}" "${extfile}"

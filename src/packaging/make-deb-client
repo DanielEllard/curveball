@@ -160,7 +160,8 @@ cat >> "${DEBDIR}"/control << EOF
 Depends: \
 	python, python-dev, curl, \
 	python-m2crypto, python-ipaddr, python-twisted, \
-	tsocks, proxychains, debsums
+	tsocks, proxychains, debsums, \
+	python-socks, python-pexpect, python-twython
 EOF
 
 cat >> "${DEBDIR}"/postinst << EOF

@@ -36,6 +36,8 @@ import os
 import os.path
 import socket
 import sys
+
+import cb.util.cblogging_setup
 import cb.util.platform
 
 class CurveballLogger(object):
@@ -69,11 +71,16 @@ class CurveballLogger(object):
 
     @staticmethod
     def init_logger(filename='', loggername='cb',
-            level=logging.WARNING, backup_count=1, want_stream=False):
+            level=logging.WARNING, backup_count=1):
         """
         Initialize a logger for this process.
 
-        filename - the file to store the default logger.  If a filename
+        The filename and backup_count parameters are interpreted
+        according to the value of cb.util.cblogging_setup.LOGTYPE
+        at the moment this method is invoked -- for some types
+        of loggers, they have no meaning.
+
+        filename - the file to store the file logger.  If a filename
             is not supplied or is '', then a name in the working directory,
             based on the name of the script with .log append, is used
             (Assuming that nobody has clobbered sys.argv[0])
@@ -85,14 +92,7 @@ class CurveballLogger(object):
         level - the active logging level
 
         backup_count - how many previous copies of the log file to keep
-
-        want_stream - if non-False, add a Stream handler in addition to the
-            RotatingFile handler.
-
         """
-
-        if not filename:
-            filename = CurveballLogger.choose_filename()
 
         try:
             if os.environ['SSLDEBUG']:
@@ -105,82 +105,113 @@ class CurveballLogger(object):
         logger = logging.getLogger(loggername)
         logger.setLevel(level)
 
-        # TODO - We might want to add the date to the log entries.
-        #
-        formatter = logging.Formatter(
-                '%(asctime)s %(name)s %(module)s:%(lineno)d ' +
-                '%(levelname)s: %(message)s')
-                #datefmt='%H:%M:%S')
-
-
-        # Initialize android logging if on an Android platform
-        #
-        # There doesn't seem to be a better way to test whether
-        # we're on Android than trying to import the android module
-        # and if this raises an exception, assume we're not.
-        #
-        if cb.util.platform.PLATFORM == 'android':
-            import androidhandler
-
-            logging.handlers.AndroidHandler = androidhandler.AndroidHandler
-
-            handler = logging.handlers.AndroidHandler()
-
-	else:
-	    # Add the log message handler to the logger
-            try:
-                handler = logging.handlers.RotatingFileHandler(
-                        filename, backupCount=backup_count)
-            except IOError, exc:
-                if exc.errno == errno.EACCES:
-                    print 'ERROR: insufficient privileges to init logfile'
-                    print 'ERROR: sudo may be necessary'
-                    sys.exit(1)
-            except BaseException, exc:
-                print 'ERROR: cannot initialize log file: %s' % str(exc)
-                sys.exit(1)
-
-	    # Start a fresh log file each run
-	    handler.doRollover()
-
-            # try to leave the file permissions on the log file such
-            # that the next process can modify them, even if it's not
-            # root.  This is dangerous.
-            #
-            if cb.util.platform.PLATFORM in ['android', 'darwin', 'linux2']:
-                try:
-                    os.chmod(filename, 0666)
-                except:
-                    pass
-
-	handler.setFormatter(formatter)
-
-	logger.addHandler(handler)
-	
-
-        # After we create the logger, I think we need need to stash a reference
-        # to it somewhere so we don't lose it.  It might hang around in a
-        # private namespace whether we do this or not, but this isn't too gross
-        # because this puts it in a class-scope variable, so the global
-        # namespace is untouched.
-        #
         CurveballLogger.logger = logger
 
-        # If you want a stream handler...
+        # Android is a special case: if we're on Android, then
+        # always use the Android logger
         #
-        if want_stream:
+        if cb.util.platform.PLATFORM == 'android':
+            add_android()
+            return
+
+        logtype = cb.util.cblogging_setup.LOGTYPE
+
+        if logtype == 'syslog':
+            add_syslog()
+        elif logtype == 'rotfile':
+            if not filename:
+                filename = CurveballLogger.choose_filename()
+            add_rotfile(filename, backup_count)
+        elif logtype == 'stderr':
             add_stderr()
+        elif logtype == 'stdout':
+            add_stdout()
+        else:
+            assert False, \
+                    ('invalid LOGTYPE [%s]' % str(logtype))
 
-def add_stderr():
+def add_android():
+    # Initialize android logging if on an Android platform
+    #
+    assert cb.util.platform.PLATFORM == 'android', \
+            'android logger can only be used on Android!'
 
-    serr = logging.StreamHandler()
+    import androidhandler
+
+    logging.handlers.AndroidHandler = androidhandler.AndroidHandler
+    handler = logging.handlers.AndroidHandler()
 
     formatter = logging.Formatter(
             '%(asctime)s %(name)s %(module)s:%(lineno)d ' +
             '%(levelname)s: %(message)s')
-    serr.setFormatter(formatter)
 
-    CurveballLogger.logger.addHandler(serr)
+    handler.setFormatter(formatter)
+    CurveballLogger.logger.addHandler(handler)
+
+def add_rotfile(filename, backup_count):
+
+    # TODO - We might want to add the date to the log entries.
+    #
+    formatter = logging.Formatter(
+            '%(asctime)s %(name)s %(module)s:%(lineno)d ' +
+            '%(levelname)s: %(message)s')
+            #datefmt='%H:%M:%S')
+
+    # Add the log message handler to the logger
+    try:
+        handler = logging.handlers.RotatingFileHandler(
+                filename, backupCount=backup_count)
+    except IOError, exc:
+        if exc.errno == errno.EACCES:
+            print 'ERROR: insufficient privileges to init logfile'
+            print 'ERROR: sudo may be necessary'
+            sys.exit(1)
+    except BaseException, exc:
+        print 'ERROR: cannot initialize log file: %s' % str(exc)
+        sys.exit(1)
+
+    # Start a fresh log file each run
+    handler.doRollover()
+
+    # try to leave the file permissions on the log file such
+    # that the next process can modify them, even if it's not
+    # root.  This is dangerous.
+    #
+    if cb.util.platform.PLATFORM in ['android', 'darwin', 'linux2']:
+        try:
+            os.chmod(filename, 0666)
+        except:
+            pass
+
+    handler.setFormatter(formatter)
+    CurveballLogger.logger.addHandler(handler)
+
+def add_stdout():
+    _add_stream(sys.stdout)
+
+def add_stderr():
+    _add_stream(sys.stdout)
+
+def _add_stream(stream):
+    """
+    General stream logger, for stdout or stderr
+
+    We use stdout for some of the daemon-like processes,
+    because we haven't gotten around to using syslog properly.
+    The assumption is that the scripts responsible for
+    managing these processes will redirect the output
+    somewhere appropriate.  It isn't usually desirable
+    to just dump everything to the terminal.
+    """
+
+    handler = logging.StreamHandler(stream=stream)
+
+    formatter = logging.Formatter(
+            'cblog %(asctime)s %(name)s %(module)s:%(lineno)d ' +
+            '%(levelname)s: %(message)s')
+    handler.setFormatter(formatter)
+
+    CurveballLogger.logger.addHandler(handler)
 
 CurveballLogger.init_logger()
 

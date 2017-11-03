@@ -1,8 +1,24 @@
-/* $Id$
- *
+/*
  * This material is based upon work supported by the Defense Advanced
- * Research Projects Agency under Contract No. N66001-11-C-4017.
- * Copyright 2011 - Raytheon BBN Technologies - All Rights Reserved
+ * Research Projects Agency under Contract No. N66001-11-C-4017 and in
+ * part by a grant from the United States Department of State.
+ * The opinions, findings, and conclusions stated herein are those
+ * of the authors and do not necessarily reflect those of the United
+ * States Department of State.
+ *
+ * Copyright 2011-2016 - Raytheon BBN Technologies Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.
+ *
+ * You may obtain a copy of the License at
+ * http://www.apache.org/licenses/LICENSE-2.0.
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+ * implied. See the License for the specific language governing
+ * permissions and limitations under the License.
  */
 
 #include <click/config.h>
@@ -68,62 +84,109 @@ ICMPProcessor::initialize(ErrorHandler *)
     return 0;
 }
 
+#if HAVE_BATCH
 void
-ICMPProcessor::push(int, Packet *p)
+ICMPProcessor::push_batch(int, PacketBatch *batch)
+{
+    Packet *current = batch;
+    Packet *last = batch;
+
+    int count = batch->count();
+    int forward = 0, redirect = 0;
+
+    while (current != NULL) {
+        SentinelDetector *detector = need_to_redirect_icmp_pkt(current);
+
+        if (detector == NULL) {
+            last = current;
+            current = current->next();
+            forward++;
+            continue;
+        }
+
+        redirect++;
+
+        if (current == batch) {
+            batch = PacketBatch::start_head(current->next());
+            current->set_next(NULL);
+
+            redirect_icmp_pkt(current, detector);
+
+            current = batch;
+            last = batch;
+            continue;
+        }
+
+        Packet *pkt = current;
+        current = current->next();
+        pkt->set_next(NULL);
+
+        redirect_icmp_pkt(pkt, detector);
+
+        last->set_next(current);
+    }
+
+    assert(count == (forward + redirect));
+
+    if (batch != NULL) {
+        batch->set_count(forward);
+        batch->set_tail(last);
+        output_push_batch(0, batch);
+    }
+}
+#endif
+
+void
+ICMPProcessor::push_packet(int, Packet *p)
+{
+    SentinelDetector *detector = need_to_redirect_icmp_pkt(p);
+    if (detector != NULL) {
+        redirect_icmp_pkt(p, detector);
+    } else {
+        output(0).push(p);
+    }
+}
+
+SentinelDetector *
+ICMPProcessor::need_to_redirect_icmp_pkt(Packet *p)
 {
     assert(p->has_network_header());
     assert(p->ip_header()->ip_p == IP_PROTO_ICMP);
 
     // XXX Need a plan for fragmented ICMP packets.
     if (IP_ISFRAG(p->ip_header())) {
-        output(0).push(p);
-        return;
+        return NULL;
     }
 
     assert(p->has_transport_header());
 
-    if (!redirect_icmp_packet(p)) {
-        output(0).push(p);
-    }
-}
-
-bool
-ICMPProcessor::redirect_icmp_packet(Packet *p)
-{
     if ((unsigned int)p->transport_length() < sizeof(click_icmp)) {
-        return false;
+        return NULL;
     }
 
     if (p->icmp_header()->icmp_type != 3  &&
         p->icmp_header()->icmp_type != 5  &&
         p->icmp_header()->icmp_type != 11 &&
         p->icmp_header()->icmp_type != 12) {
-        return false;
+        return NULL;
     }
 
     const unsigned char *data = p->transport_header() + sizeof(click_icmp);
     unsigned int len = p->transport_length() - sizeof(click_icmp);
 
     if (len < sizeof(click_ip)) {
-        click_chatter("ICMPProcessor::redirect_icmp_packet: "
-                      "IP header not included within packet");
-        return false;
+        //click_chatter("ICMPProcessor::need_to_redirect_icmp_pkt: "
+        //              "IP header not included within packet");
+        return NULL;
     }
 
     const click_ip *ip_hdr = reinterpret_cast<const click_ip *>(data);
     unsigned int ip_hdr_len = ip_hdr->ip_hl * 4;
 
-    // non-first packet fragments do not include the necessary TCP header
-    if (IP_ISFRAG(ip_hdr) && !IP_FIRSTFRAG(ip_hdr)) {
-        click_chatter("ICMPProcessor::redirect_icmp_packet: "
-                      "non-first IP packet fragment within ICMP packet");
-        return false;
-    }
-
     if (len < ip_hdr_len + sizeof(click_tcp)) {
-        click_chatter("ICMPProcessor::redirect_icmp_packet: "
-                      "TCP header not included within packet");
-        return false;
+        //click_chatter("ICMPProcessor::need_to_redirect_icmp_pkt: "
+        //              "TCP header not included within packet");
+        return NULL;
     }
 
     const click_tcp *tcp_hdr =
@@ -137,20 +200,40 @@ ICMPProcessor::redirect_icmp_packet(Packet *p)
          d != _sentinel_detectors.end();
          ++d) {
 
-        if ((*d)->redirected_flow(flow_id)) {
-            (*d)->redirect_icmp_packet(flow_id, p);
-            return true;
-        }
+        if ((*d)->redirected_flow(flow_id) ||
+            (*d)->redirected_flow(flow_id.reverse())) {
 
-        if ((*d)->redirected_flow(flow_id.reverse())) {
-            (*d)->redirect_icmp_packet(flow_id, p, true);
-            return true;
+            // annotate packet with flow identifier
+            p->set_anno_u32(0,  flow_id.saddr().addr());
+            p->set_anno_u32(4,  flow_id.daddr().addr());
+            p->set_anno_u16(8,  flow_id.sport());
+            p->set_anno_u16(10, flow_id.dport());
+
+            return (*d);
         }
     }
 
-    return false;
+    return NULL;
 }
 
+void
+ICMPProcessor::redirect_icmp_pkt(Packet *p, SentinelDetector *detector)
+{
+    IPFlowID flow_id(p->anno_u32(0), p->anno_u16(8),
+                     p->anno_u32(4), p->anno_u16(10));
+
+    if (detector->redirected_flow(flow_id)) {
+        detector->redirect_icmp_packet(flow_id, p);
+
+    } else if (detector->redirected_flow(flow_id.reverse())) {
+        detector->redirect_icmp_packet(flow_id, p, true);
+
+    } else {
+        click_chatter("ICMPProcessorr::redirect_icmp_pkt: "
+                      "flow incorrectly identified for redirection");
+        p->kill();
+    }
+}
 
 CLICK_ENDDECLS
 EXPORT_ELEMENT(ICMPProcessor)

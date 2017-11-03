@@ -1,9 +1,9 @@
 <html>
   <head>
-    <title>Running BBN Curveball - version 2017.05.12</title>
+    <title>Running BBN Curveball - version 2017.05.23 </title>
   </head>
   <body>
-    <h1>Running BBN Curveball - version 2017.05.12</h1>
+    <h1>Running BBN Curveball - version 2017.05.23 </h1>
 
     <p>
     This document describes how to run BBN Curveball,
@@ -138,26 +138,24 @@
     </p>
 
     <pre>
-    sudo /opt/curveball/scripts/cb-dr --decoyproxy dp:4001 \
-            --decoyname decoy --clientname client
+    sudo /opt/curveball/scripts/cb-dr --decoyproxy dp:4800 \
+            --iface [interface] --riface [interface]
     </pre>
 
     <p>
     <b>Note:</b>
-    these instructions assume that the names of the <tt>dp</tt>,
-    <tt>client</tt>, and <tt>decoy</tt> nodes are as shown above.
-    If the node names are changed, then this commandline may have
+    these instructions assume that the name of the <tt>dp</tt>,
+    node is as shown above.
+    If the node name is changed, then this commandline may have
     to change accordingly.
     The requirements are that:
     </p>
     
     <ul>
-      <li> The <tt>clientname</tt> must be the name of a host whose
-      route to the decoy is via the ingress interface (for packets from a client
-      to a decoy) of the <tt>dr</tt></li>
-      <li> The <tt>decoyname</tt> must be the name of a host whose
-      route to the client is via the egress interface (for packets from a client
-      to a decoy) of the <tt>dr</tt></li>
+      <li> The <tt>iface</tt> must be the ingress interface
+      (for packets from a client to a decoy) of the <tt>dr</tt></li>
+      <li> The <tt>rface</tt> must be the egress interface
+      (for packets from a client to a decoy) of the <tt>dr</tt></li>
       <li> The <tt>decoyproxy</tt> is the name of the decoy proxy
       (the host running <tt>cb-dp</tt>)
       for this decoy router </li>

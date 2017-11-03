@@ -67,11 +67,13 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-${CP} ${SRCDIR}/*.${SENT_DH_SUFFIX} ${DP_DEST_DIR}/
-if [ $? -ne 0 ]; then
-  echo "ERROR synching .$SENT_DH_SUFFIX files with DP"
-  exit 1
-fi
+# We don't do BitTorrent DH sentinels in this release
+#
+# ${CP} ${SRCDIR}/*.${SENT_DH_SUFFIX} ${DP_DEST_DIR}/
+# if [ $? -ne 0 ]; then
+#   echo "ERROR synching .$SENT_DH_SUFFIX files with DP"
+#   exit 1
+# fi
 
 ${CP} ${SRCDIR}/*.${SENT_BF_SUFFIX} ${DR_DEST_DIR}/
 if [ $? -ne 0 ]; then

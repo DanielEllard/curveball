@@ -17,6 +17,8 @@
 # implied.  See the License for the specific language governing
 # permissions and limitations under the License.
 
+# READ THESE INSTRUCTIONS FIRST
+#
 # A quick script to create an experimental certificate authority (using
 # a self-signed cert) for use by Curveball.  This CA is not intended
 # to be secure: it uses a self-signed certificate with no passphrase!
@@ -28,9 +30,15 @@
 # want something new, remove current files first.
 #
 # usage: ./make-ca-cert
+#
+# NOTE: after changing the CA cert, you MUST run
+# ../packaging/create-certdb in order to update the certdb
+# files used by the client (for the testbed).  You should use
+# create-certdb and then commit any changes to the certdb
+# directory along with changes to the CA certificate.
 
 
-RSA_KEYSIZE=2048	# adjust as necessary
+RSA_KEYSIZE=4096	# adjust as necessary
 LIFETIME_DAYS=1461	# four years
 CERT_DIR=./CA
 CA_CONF=curveball_ca.cnf
@@ -74,6 +82,7 @@ create_ca_cert() {
 
     # Create the cert:
     openssl req -new -x509 -config "${CA_CONF}"  \
+	    -sha256 \
 	    -days "${LIFETIME_DAYS}" \
 	    -key "${CA_KEY}" -out "${CA_CERT}"
     if [ $? -ne 0 ]; then

@@ -35,31 +35,32 @@ pow(int x, int y)
 }
 
 BloomFilter::BloomFilter():
-    _hash_size(0), _hash_mask(0xFFFFFFFF)
+    _hash_size(0), _hash_mask(0xFFFFFFFF), _print_uninit_mesg(true)
 {
 }
 
 BloomFilter::BloomFilter(int hash_size):
-    _hash_size(hash_size)
+    _hash_size(hash_size), _print_uninit_mesg(true)
 {
     initialize();
 }
 
 BloomFilter::BloomFilter(int hash_size, const Bitvector& bit_table):
-    _hash_size(hash_size), _bit_table(bit_table)
+    _hash_size(hash_size), _bit_table(bit_table), _print_uninit_mesg(true)
 {
     initialize(false);
 }
 
 BloomFilter::BloomFilter(int hash_size, const Vector<uint32_t>& salt_values):
-    _hash_size(hash_size), _salt_values(salt_values)
+    _hash_size(hash_size), _salt_values(salt_values), _print_uninit_mesg(true)
 {
     initialize();
 }
 
 BloomFilter::BloomFilter(int hash_size, const Bitvector& bit_table,
                          const Vector<uint32_t>& salt_values):
-    _hash_size(hash_size), _salt_values(salt_values), _bit_table(bit_table)
+    _hash_size(hash_size), _salt_values(salt_values), _bit_table(bit_table),
+    _print_uninit_mesg(true)
 {
     initialize(false);
 }
@@ -131,10 +132,13 @@ BloomFilter::insert(int bit)
 }
 
 bool
-BloomFilter::member(const char *data, int len) const
+BloomFilter::member(const char *data, int len)
 {
     if (_hash_size == 0) {
-        click_chatter("BloomFilter::insert: uninitialized hash table");
+        if (_print_uninit_mesg) {
+            click_chatter("BloomFilter::member: uninitialized hash table");
+            _print_uninit_mesg = false;
+        }
         return false;
     }
 
