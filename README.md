@@ -2,6 +2,21 @@
 
 Fork of the open source releases of the BBN Curveball project.
 
+## Caveats
+
+This implementation of the Curveball protocols (including the
+TLS and HTTP Rebound protocols) has several known shortcomings
+that make it easy to detect and block.  These shortcomings are not
+intrinsic to the protocols, but reflect the fact that the
+implementation was intended to be tested against assumptions
+that were valid in 2010-2012, but are no longer valid.
+
+See the issues for a description of things that would need
+to be fixed in order to make Curveball usable at the current
+time.
+
+## History
+
 The initial commits of this repository contain the open source
 releases that were originally published on
 [curveball.nct.bbn.com](https://curveball.nct.bbn.com/).
@@ -45,4 +60,9 @@ There is a tag for each of the releases:
 
  * **bbn-curveball-2014.06.18** - The initial open source Curveball release.
 
+## Contributors
 
+Curveball was conceived, designed, implemented, tested, and supported
+by a number of people at Raytheon BBN Technologies over the
+course of the project.  I hope to have a complete list here at some
+point, after I get permission from people to mention their names.
